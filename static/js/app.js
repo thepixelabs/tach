@@ -1130,7 +1130,14 @@ function renderTpsTrendPanel(container, appState) {
     const getX = idx => pad.left + (idx / Math.max(data.length - 1, 1)) * chartW;
     const getY = val => pad.top + chartH - (val / maxTps) * chartH;
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    const isLight = document.documentElement.getAttribute('data-mode') === 'light';
+    const gridStroke = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.06)';
+    const textFill = isLight ? '#4B5565' : '#5E667E';
+    const peakColor = isLight ? '#E11D48' : '#FF1493';
+    const avgColor = isLight ? '#059669' : '#10B981';
+    const fillStart = isLight ? 'rgba(5, 150, 105, 0.22)' : 'rgba(57, 255, 20, 0.3)';
+
+    ctx.strokeStyle = gridStroke;
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const yVal = (maxTps / 4) * i;
@@ -1140,7 +1147,7 @@ function renderTpsTrendPanel(container, appState) {
       ctx.lineTo(w - pad.right, y);
       ctx.stroke();
 
-      ctx.fillStyle = '#5E667E';
+      ctx.fillStyle = textFill;
       ctx.font = '10px JetBrains Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillText(String(Math.round(yVal)), pad.left - 6, y + 3);
@@ -1153,13 +1160,13 @@ function renderTpsTrendPanel(container, appState) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = '#FF1493';
+    ctx.strokeStyle = peakColor;
     ctx.lineWidth = 1.8;
     ctx.stroke();
 
     const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + chartH);
-    grad.addColorStop(0, 'rgba(57, 255, 20, 0.3)');
-    grad.addColorStop(1, 'rgba(57, 255, 20, 0.0)');
+    grad.addColorStop(0, fillStart);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
 
     ctx.beginPath();
     data.forEach((d, i) => {
@@ -1168,7 +1175,7 @@ function renderTpsTrendPanel(container, appState) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = '#39FF14';
+    ctx.strokeStyle = avgColor;
     ctx.lineWidth = 2.4;
     ctx.stroke();
 
@@ -1269,7 +1276,14 @@ function renderTokenVolumePanel(container, appState) {
     const maxTokens = Math.max(...data.map(d => d.tokens_total || 0), 1000) * 1.15;
     const barWidth = Math.min((chartW / data.length) * 0.65, 30);
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    const isLight = document.documentElement.getAttribute('data-mode') === 'light';
+    const gridStroke = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.06)';
+    const textFill = isLight ? '#4B5565' : '#5E667E';
+    const inColor = isLight ? 'rgba(2, 132, 199, 0.6)' : 'rgba(0, 240, 255, 0.45)';
+    const outColor = isLight ? '#6366F1' : '#BE48E0';
+    const dateFill = isLight ? '#4B5565' : '#9EA6BD';
+
+    ctx.strokeStyle = gridStroke;
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const yVal = (maxTokens / 4) * i;
@@ -1279,7 +1293,7 @@ function renderTokenVolumePanel(container, appState) {
       ctx.lineTo(w - pad.right, y);
       ctx.stroke();
 
-      ctx.fillStyle = '#5E667E';
+      ctx.fillStyle = textFill;
       ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillText(formatNum(yVal), pad.left - 6, y + 3);
@@ -1294,13 +1308,13 @@ function renderTokenVolumePanel(container, appState) {
       const inH = Math.max(totalH - outH, 0);
       const yBottom = pad.top + chartH;
 
-      ctx.fillStyle = 'rgba(0, 240, 255, 0.45)';
+      ctx.fillStyle = inColor;
       ctx.fillRect(x, yBottom - totalH, barWidth, inH);
 
-      ctx.fillStyle = '#BE48E0';
+      ctx.fillStyle = outColor;
       ctx.fillRect(x, yBottom - outH, barWidth, outH);
 
-      ctx.fillStyle = '#9EA6BD';
+      ctx.fillStyle = dateFill;
       ctx.font = '9px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText((d.date || '').slice(5), xCenter, h - 8);
@@ -2165,7 +2179,7 @@ function switchNavTab(tab) {
 const THEME_NAMES = {
   subtle: 'Subtle Slate & Indigo',
   neon: 'Cyber Neon',
-  light: 'Light Studio',
+  light: 'Creamy Studio',
   solar: 'Solar Monochrome'
 };
 
@@ -2185,11 +2199,7 @@ function applyTheme(themeName) {
     themeLabel.textContent = 'Theme: ' + (THEME_NAMES[themeName] || themeName);
   }
 
-  // Redraw dashboard canvas charts with new theme colors
-  const tpsWrap = document.getElementById('panel-body-tps-trend');
-  if (tpsWrap) renderTpsTrendPanel(tpsWrap, state);
-  const volWrap = document.getElementById('panel-body-token-volume');
-  if (volWrap) renderTokenVolumePanel(volWrap, state);
+  renderDashboard();
 }
 
 function applyMode(mode) {
@@ -2202,15 +2212,21 @@ function applyMode(mode) {
     btn.classList.toggle('active', btn.id === ('btnMode' + mode.charAt(0).toUpperCase() + mode.slice(1)));
   });
 
-  if (mode === 'light') {
-    applyTheme('light');
-  } else if (mode === 'dark') {
-    if (state.theme === 'light') applyTheme('subtle');
-  } else if (mode === 'system') {
+  let effectiveMode = mode;
+  if (mode === 'system') {
     const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    applyTheme(isDark ? 'subtle' : 'light');
+    effectiveMode = isDark ? 'dark' : 'light';
   }
+  document.documentElement.setAttribute('data-mode', effectiveMode);
+
+  renderDashboard();
 }
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (state.mode === 'system') {
+    applyMode('system');
+  }
+});
 
 function openSettingsModal() {
   const modal = document.getElementById('settingsModal');

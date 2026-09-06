@@ -1,11 +1,12 @@
 /* ============================================================
    Token Telemetry & Model Observatory
-   Modern SaaS App Shell, Subtle & Cyber Themes, Full Width Grid
+   Modern SaaS App Shell, Creamy Light & Dark Themes, Full Width Grid
    ============================================================ */
 
-/* 1. Subtle Slate & Indigo (Default Theme - Clean, Professional, Subtle) */
+/* 1. Subtle Slate & Indigo (Default Dark Theme) */
 :root,
-[data-theme="subtle"] {
+[data-theme="subtle"]:not([data-mode="light"]),
+[data-mode="dark"][data-theme="subtle"] {
   color-scheme: dark;
   --bg-dark:       #0A0D14;
   --bg-deep:       #06080D;
@@ -50,8 +51,9 @@
   --transition:    all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 2. Cyber Neon Theme (Original Electric Glow) */
-[data-theme="neon"] {
+/* 2. Cyber Neon Theme (Dark Glow) */
+[data-theme="neon"]:not([data-mode="light"]),
+[data-mode="dark"][data-theme="neon"] {
   color-scheme: dark;
   --bg-dark:       #0A0C13;
   --bg-deep:       #06070A;
@@ -61,6 +63,7 @@
   --bg-panel-solid:#0F121B;
   --bg-card:       rgba(20, 24, 37, 0.65);
   --bg-card-hover: rgba(28, 34, 52, 0.85);
+  --bg-pill:       rgba(255, 255, 255, 0.05);
 
   --text-main:     #E9ECF5;
   --text-sub:      #9EA6BD;
@@ -89,49 +92,9 @@
   --glow-violet:   0 0 20px rgba(190, 72, 224, 0.35);
 }
 
-/* 3. Light Studio Theme (Clean Studio White/Slate) */
-[data-theme="light"],
-[data-mode="light"] {
-  color-scheme: light;
-  --bg-dark:       #F8FAFC;
-  --bg-deep:       #F1F5F9;
-  --bg-sidebar:    #FFFFFF;
-  --bg-topbar:     rgba(255, 255, 255, 0.92);
-  --bg-panel:      #FFFFFF;
-  --bg-panel-solid:#FFFFFF;
-  --bg-card:       #F8FAFC;
-  --bg-card-hover: #F1F5F9;
-  --bg-pill:       rgba(0, 0, 0, 0.04);
-
-  --text-main:     #0F172A;
-  --text-sub:      #475569;
-  --text-muted:    #94A3B8;
-
-  --accent-primary:      #4F46E5;
-  --accent-primary-hover:#4338CA;
-  --accent-secondary:    #0284C7;
-  --accent-success:      #059669;
-  --accent-warning:      #D97706;
-  --accent-danger:       #DC2626;
-
-  --neon-violet:   #4F46E5;
-  --neon-cyan:     #0284C7;
-  --neon-acid:     #059669;
-  --neon-pink:     #DB2777;
-  --neon-amber:    #D97706;
-  --neon-coral:    #DC2626;
-
-  --border-subtle: #E2E8F0;
-  --border-active: rgba(79, 70, 229, 0.45);
-  --border-violet: rgba(79, 70, 229, 0.3);
-  --border-cyan:   rgba(2, 132, 199, 0.3);
-  --glow-pink:     0 4px 12px rgba(219, 39, 119, 0.15);
-  --glow-acid:     0 4px 12px rgba(5, 150, 105, 0.15);
-  --glow-violet:   0 4px 14px rgba(79, 70, 229, 0.15);
-}
-
-/* 4. Solar Monochrome Theme */
-[data-theme="solar"] {
+/* 3. Solar Monochrome Theme (Dark OLED) */
+[data-theme="solar"]:not([data-mode="light"]),
+[data-mode="dark"][data-theme="solar"] {
   color-scheme: dark;
   --bg-dark:       #111111;
   --bg-deep:       #0A0A0A;
@@ -141,6 +104,7 @@
   --bg-panel-solid:#1A1A1A;
   --bg-card:       #202020;
   --bg-card-hover: #2A2A2A;
+  --bg-pill:       rgba(255, 255, 255, 0.05);
 
   --text-main:     #FAFAFA;
   --text-sub:      #A1A1AA;
@@ -165,6 +129,191 @@
   --border-violet: rgba(226, 183, 20, 0.35);
   --border-cyan:   rgba(56, 189, 248, 0.35);
   --glow-violet:   0 0 16px rgba(226, 183, 20, 0.25);
+}
+
+/* ============================================================
+   LIGHT MODE PALETTES (CREAMY, SLIGHTLY WARMER & DARKER THAN PURE WHITE)
+   Each theme has its own delicate, theme-tinted creamy light tone
+   ============================================================ */
+
+/* 4. Subtle Slate & Indigo (Light Mode - Creamy Oat & Slate) */
+[data-mode="light"],
+[data-mode="light"][data-theme="subtle"] {
+  color-scheme: light;
+  --bg-dark:       #ECE8E1; /* Creamy warm oat background, soft & anti-glare */
+  --bg-deep:       #E4DFD6; /* Slightly deeper cream base */
+  --bg-sidebar:    #F4F0E8; /* Rich creamy warm sidebar */
+  --bg-topbar:     rgba(244, 240, 232, 0.94);
+  --bg-panel:      #FAF7F2; /* Creamy soft ivory surface */
+  --bg-panel-solid:#FAF7F2;
+  --bg-card:       #F0ECE3; /* Creamy card surface */
+  --bg-card-hover: #E6E0D5;
+  --bg-pill:       rgba(0, 0, 0, 0.05);
+
+  --text-main:     #1D232C; /* Deep charcoal, crisp and comfortable */
+  --text-sub:      #495565;
+  --text-muted:    #727F92;
+
+  --accent-primary:      #4F46E5; /* Rich Indigo */
+  --accent-primary-hover:#4338CA;
+  --accent-secondary:    #0284C7; /* Sky */
+  --accent-success:      #059669; /* Emerald */
+  --accent-warning:      #D97706; /* Amber */
+  --accent-danger:       #DC2626; /* Crimson */
+
+  --neon-violet:   #4F46E5;
+  --neon-cyan:     #0284C7;
+  --neon-acid:     #059669;
+  --neon-pink:     #D946EF;
+  --neon-amber:    #D97706;
+  --neon-coral:    #DC2626;
+
+  --border-subtle: #DBD5C7;
+  --border-active: rgba(79, 70, 229, 0.5);
+  --border-violet: rgba(79, 70, 229, 0.35);
+  --border-cyan:   rgba(2, 132, 199, 0.35);
+  --glow-pink:     0 4px 14px rgba(217, 70, 239, 0.16);
+  --glow-acid:     0 4px 14px rgba(5, 150, 105, 0.16);
+  --glow-violet:   0 4px 16px rgba(79, 70, 229, 0.18);
+}
+
+/* 5. Cyber Neon (Light Mode - Creamy with soft lavender/violet blush) */
+[data-mode="light"][data-theme="neon"] {
+  color-scheme: light;
+  --bg-dark:       #ECE4ED; /* Creamy with soft delicate lavender/violet warmth */
+  --bg-deep:       #E2D7E4;
+  --bg-sidebar:    #F4ECF5; /* Delicate soft lilac cream */
+  --bg-topbar:     rgba(244, 236, 245, 0.94);
+  --bg-panel:      #FAF4FB; /* Creamy luminous lilac-white surface */
+  --bg-panel-solid:#FAF4FB;
+  --bg-card:       #F0E6F2; /* Soft pastel neon card */
+  --bg-card-hover: #E6D8E9;
+  --bg-pill:       rgba(168, 85, 247, 0.08);
+
+  --text-main:     #27192F; /* Deep rich dark plum */
+  --text-sub:      #5B4365;
+  --text-muted:    #846B90;
+
+  --accent-primary:      #9333EA; /* Electric Violet */
+  --accent-primary-hover:#7E22CE;
+  --accent-secondary:    #0891B2; /* Electric Cyan */
+  --accent-success:      #16A34A; /* Electric Green */
+  --accent-warning:      #D97706; /* Neon Amber */
+  --accent-danger:       #E11D48; /* Electric Rose */
+
+  --neon-violet:   #9333EA;
+  --neon-cyan:     #0891B2;
+  --neon-acid:     #16A34A;
+  --neon-pink:     #D946EF;
+  --neon-amber:    #D97706;
+  --neon-coral:    #E11D48;
+
+  --border-subtle: #DCC9DF;
+  --border-active: rgba(168, 85, 247, 0.6);
+  --border-violet: rgba(168, 85, 247, 0.45);
+  --border-cyan:   rgba(8, 145, 178, 0.45);
+  --glow-pink:     0 4px 16px rgba(217, 70, 239, 0.22);
+  --glow-acid:     0 4px 16px rgba(22, 163, 74, 0.2);
+  --glow-violet:   0 4px 18px rgba(147, 51, 234, 0.24);
+}
+
+/* 6. Solar Monochrome (Light Mode - Creamy Golden Sand & Amber Parchment) */
+[data-mode="light"][data-theme="solar"] {
+  color-scheme: light;
+  --bg-dark:       #ECE5D7; /* Creamy warm amber/sand parchment */
+  --bg-deep:       #E3DBCA;
+  --bg-sidebar:    #F4EDE0; /* Warm golden-cream parchment */
+  --bg-topbar:     rgba(244, 237, 224, 0.94);
+  --bg-panel:      #FAF6ED; /* Warm sunny solar ivory */
+  --bg-panel-solid:#FAF6ED;
+  --bg-card:       #F1E9DA; /* Golden cream card */
+  --bg-card-hover: #E7DDCC;
+  --bg-pill:       rgba(180, 83, 9, 0.08);
+
+  --text-main:     #271E14; /* Deep warm dark espresso */
+  --text-sub:      #5C4D38;
+  --text-muted:    #85725A;
+
+  --accent-primary:      #B45309; /* Deep Solar Gold */
+  --accent-primary-hover:#92400E;
+  --accent-secondary:    #0284C7;
+  --accent-success:      #15803D;
+  --accent-warning:      #D97706;
+  --accent-danger:       #DC2626;
+
+  --neon-violet:   #B45309;
+  --neon-cyan:     #0284C7;
+  --neon-acid:     #15803D;
+  --neon-pink:     #C026D3;
+  --neon-amber:    #D97706;
+  --neon-coral:    #DC2626;
+
+  --border-subtle: #DCD0BD;
+  --border-active: rgba(217, 119, 6, 0.6);
+  --border-violet: rgba(217, 119, 6, 0.45);
+  --border-cyan:   rgba(2, 132, 199, 0.4);
+  --glow-violet:   0 4px 16px rgba(180, 83, 9, 0.2);
+}
+
+/* 7. Creamy Studio Minimalist */
+[data-theme="light"]:not([data-mode="dark"]),
+[data-mode="light"][data-theme="light"] {
+  color-scheme: light;
+  --bg-dark:       #ECE7DF; /* Warm creamy linen background */
+  --bg-deep:       #E4DED3;
+  --bg-sidebar:    #F4EFE7;
+  --bg-topbar:     rgba(244, 239, 231, 0.94);
+  --bg-panel:      #FAF7F1;
+  --bg-panel-solid:#FAF7F1;
+  --bg-card:       #F1ECE2;
+  --bg-card-hover: #E7E0D5;
+  --bg-pill:       rgba(0, 0, 0, 0.05);
+
+  --text-main:     #1C222B;
+  --text-sub:      #495464;
+  --text-muted:    #707D8F;
+
+  --accent-primary:      #4F46E5;
+  --accent-primary-hover:#4338CA;
+  --accent-secondary:    #0284C7;
+  --accent-success:      #059669;
+  --accent-warning:      #D97706;
+  --accent-danger:       #DC2626;
+
+  --neon-violet:   #4F46E5;
+  --neon-cyan:     #0284C7;
+  --neon-acid:     #059669;
+  --neon-pink:     #DB2777;
+  --neon-amber:    #D97706;
+  --neon-coral:    #DC2626;
+
+  --border-subtle: #DCD5C6;
+  --border-active: rgba(79, 70, 229, 0.5);
+  --border-violet: rgba(79, 70, 229, 0.35);
+  --border-cyan:   rgba(2, 132, 199, 0.35);
+  --glow-pink:     0 4px 12px rgba(219, 39, 119, 0.15);
+  --glow-acid:     0 4px 12px rgba(5, 150, 105, 0.15);
+  --glow-violet:   0 4px 14px rgba(79, 70, 229, 0.15);
+}
+
+/* Light Mode Global Shadows & Refinements */
+[data-mode="light"] .dashboard-panel {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-mode="light"] .session-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+[data-mode="light"] .session-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+}
+
+[data-mode="light"] .chart-tooltip {
+  background: var(--bg-panel-solid);
+  border: 1px solid var(--border-active);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  color: var(--text-main);
 }
 
 *, *::before, *::after {
@@ -300,7 +449,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .nav-item.active {
   background: rgba(99, 102, 241, 0.14);
   border-color: rgba(99, 102, 241, 0.3);
-  color: #FFFFFF;
+  color: var(--text-main);
   font-weight: 600;
 }
 
@@ -342,7 +491,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .sidebar-source-item.active {
   background: rgba(99, 102, 241, 0.12);
   border-color: var(--border-active);
-  color: #FFFFFF;
+  color: var(--text-main);
   font-weight: 600;
 }
 
@@ -745,7 +894,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.03em;
-  color: #FFFFFF;
+  color: var(--text-main);
 }
 
 .metric-unit {
@@ -993,7 +1142,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .timewindow-pill:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
-  color: #FFFFFF;
+  color: var(--text-main);
 }
 
 .timewindow-pill.active {
@@ -1523,7 +1672,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .gallery-card-title {
   font-size: 0.92rem;
   font-weight: 700;
-  color: #FFF;
+  color: var(--text-main);
   margin-bottom: 0.2rem;
 }
 
@@ -1589,7 +1738,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 
 .bar-row-val {
   font-size: 0.75rem;
-  color: #FFF;
+  color: var(--text-main);
   width: 50px;
   text-align: right;
 }
@@ -1619,7 +1768,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .pulse-box-val {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #FFF;
+  color: var(--text-main);
 }
 
 /* Interactive Filter Toolbar */
@@ -1765,7 +1914,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .session-title {
   font-size: 1rem;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text-main);
   margin-bottom: 0.35rem;
   white-space: nowrap;
   overflow: hidden;
@@ -1824,7 +1973,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 .stat-num {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #FFFFFF;
+  color: var(--text-main);
 }
 
 .stat-lbl {
@@ -2047,7 +2196,7 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
 
 .msg-text.md h2 { border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.3rem; }
 
-.msg-text.md strong { color: #FFFFFF; font-weight: 700; }
+.msg-text.md strong { color: var(--text-main); font-weight: 700; }
 .msg-text.md em { color: var(--text-sub); }
 .msg-text.md del { color: var(--text-muted); }
 
