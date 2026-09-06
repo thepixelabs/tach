@@ -29,23 +29,84 @@
       </div>
     </header>
 
+    <!-- Prominent Data Source / Harness Switcher Bar -->
+    <section class="datasource-bar" id="datasourceBar">
+      <div class="datasource-label">
+        <span class="pulse-dot"></span>
+        <span>Data Source:</span>
+      </div>
+      <div class="datasource-pills" id="datasourcePills">
+        <button class="datasource-pill active" data-harness="" onclick="selectDataSource('')" title="Show unified data across all agent harnesses">
+          <span class="ds-icon">🌐</span>
+          <span class="ds-name">All Sources</span>
+          <span class="ds-count mono" id="dsCountAll">--</span>
+        </button>
+        <button class="datasource-pill" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
+          <span class="ds-icon">⚡</span>
+          <span class="ds-name">OpenCode</span>
+          <span class="ds-count mono" id="dsCountOpenCode">--</span>
+        </button>
+        <button class="datasource-pill" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw gateway sessions and task runs">
+          <span class="ds-icon">🐾</span>
+          <span class="ds-name">OpenClaw</span>
+          <span class="ds-count mono" id="dsCountOpenClaw">--</span>
+        </button>
+        <button class="datasource-pill" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
+          <span class="ds-icon">🤖</span>
+          <span class="ds-name">Aider</span>
+          <span class="ds-count mono" id="dsCountAider">--</span>
+        </button>
+        <button class="datasource-pill" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE assistant sessions">
+          <span class="ds-icon">🚀</span>
+          <span class="ds-name">Continue</span>
+          <span class="ds-count mono" id="dsCountContinue">--</span>
+        </button>
+        <button class="datasource-pill" data-harness="mlx" onclick="selectDataSource('mlx')" title="Live Apple Silicon MLX LM Server (port 8080)">
+          <span class="ds-icon">🟢</span>
+          <span class="ds-name">MLX LM</span>
+          <span class="ds-status mono" id="dsStatusMlx">Live</span>
+        </button>
+        <button class="datasource-pill" data-harness="ollama" onclick="selectDataSource('ollama')" title="Live Ollama Daemon (port 11434)">
+          <span class="ds-icon">🦙</span>
+          <span class="ds-name">Ollama</span>
+          <span class="ds-status mono" id="dsStatusOllama">Live</span>
+        </button>
+      </div>
+    </section>
+
     <!-- Dashboard Controls Bar -->
     <div class="dashboard-controls-bar">
       <div class="dashboard-controls-left">
         <h2 class="dashboard-section-title">
           <span style="color:var(--neon-acid);">⚡</span>
-          <span>Telemetry Observatory</span>
+          <span>Observatory</span>
         </h2>
         <span class="badge badge-provider mono" id="activeWidgetsBadge">-- Active Panels</span>
       </div>
       <div class="dashboard-controls-right">
+        <!-- Global Panel Sizing Mode -->
+        <div class="dashboard-mode-group" title="Set width for all visible dashboard panels">
+          <span class="dashboard-mode-label">Card Size:</span>
+          <button class="dashboard-mode-btn" id="btnSizeCompact" onclick="setGlobalPanelSize(4)" title="3 cards per row (33% width)">33%</button>
+          <button class="dashboard-mode-btn active" id="btnSizeBalanced" onclick="setGlobalPanelSize(6)" title="2 cards per row (50% width)">50%</button>
+          <button class="dashboard-mode-btn" id="btnSizeFull" onclick="setGlobalPanelSize(12)" title="1 card per row (100% full width)">100%</button>
+        </div>
+
+        <!-- Screen Width Selector -->
+        <div class="dashboard-mode-group" title="Adjust page container width">
+          <span class="dashboard-mode-label">Screen:</span>
+          <button class="dashboard-mode-btn active" id="btnWidthWide" onclick="setPageWidthMode('wide')" title="Ultra-wide container (1880px)">Wide</button>
+          <button class="dashboard-mode-btn" id="btnWidthFull" onclick="setPageWidthMode('fullwidth')" title="Stretch to 100% of display width">Full 100%</button>
+          <button class="dashboard-mode-btn" id="btnWidthStd" onclick="setPageWidthMode('standard')" title="Standard 1440px container">1440px</button>
+        </div>
+
         <button class="btn-ghost" onclick="resetDashboardLayout()" title="Restore default panel layout">
           <span>↺</span>
           <span>Reset Layout</span>
         </button>
         <button class="btn-primary-neon" onclick="openPanelGallery()">
           <span>+</span>
-          <span>Add Panel / Gallery</span>
+          <span>Add Panel</span>
         </button>
       </div>
     </div>

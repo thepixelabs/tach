@@ -393,15 +393,124 @@ def get_all_stats():
     }
 
 
-def get_sessions(query_params):
-    conn = get_db_connection()
-    if not conn:
+def get_openclaw_sessions():
+    db_path = CONFIG.get("openclaw_db")
+    if not db_path or not Path(db_path).exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(db_path))
+        c = conn.cursor()
+        c.execute("SELECT session_key, session_id, agent, mode, cwd, updated_at FROM acp_sessions")
+        rows = c.fetchall()
+        conn.close()
+        res = []
+        for r in rows:
+            agent_name = r[2] if r[2] else "default"
+            t_updated = (r[5] or 0) / 1000
+            created_dt = datetime.fromtimestamp(t_updated) if t_updated else None
+            res.append({
+                "id": str(r[0] or r[1] or "oc_session"),
+                "harness": "openclaw",
+                "title": f"OpenClaw Agent ({agent_name})",
+                "directory": sanitize_path(r[4] or "~"),
+                "folder": Path(r[4]).name if r[4] else "openclaw",
+                "model": f"openclaw/{agent_name}",
+                "provider": "openclaw",
+                "date_str": created_dt.strftime("%Y-%m-%d %H:%M") if created_dt else "Recent",
+                "time_created": int(t_updated * 1000),
+                "duration_s": 45.0,
+                "tokens_input": 0,
+                "tokens_output": 0,
+                "tokens_reasoning": 0,
+                "tokens_total": 0,
+                "cost": 0.0,
+                "message_count": 1,
+                "tps": 0.0,
+                "peak_tps": 0.0,
+                "has_tool_calls": False,
+            })
+        return res
+    except Exception:
         return []
 
-    c = conn.cursor()
 
+def get_aider_sessions():
+    histories = scan_aider_history()
+    res = []
+    for h in histories:
+        try:
+            path = Path(h["path"])
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            prompts = text.count("\n#### ") or 1
+            tokens_approx = len(text) // 4
+            stat = path.stat()
+            created_dt = datetime.fromtimestamp(stat.st_mtime)
+            res.append({
+                "id": f"aider_{path.name}_{int(stat.st_mtime)}",
+                "harness": "aider",
+                "title": f"Aider Session in {sanitize_path(str(path.parent))}",
+                "directory": sanitize_path(str(path.parent)),
+                "folder": path.parent.name or "aider",
+                "model": "aider/local",
+                "provider": "aider",
+                "date_str": created_dt.strftime("%Y-%m-%d %H:%M"),
+                "time_created": int(stat.st_mtime * 1000),
+                "duration_s": 120.0,
+                "tokens_input": int(tokens_approx * 0.7),
+                "tokens_output": int(tokens_approx * 0.3),
+                "tokens_reasoning": 0,
+                "tokens_total": tokens_approx,
+                "cost": 0.0,
+                "message_count": prompts,
+                "tps": 0.0,
+                "peak_tps": 0.0,
+                "has_tool_calls": False,
+            })
+        except Exception:
+            continue
+    return res
+
+
+def get_continue_sessions():
+    sessions = scan_continue_sessions()
+    res = []
+    for s in sessions:
+        try:
+            path = Path(s["path"])
+            data = json.loads(path.read_text(encoding="utf-8"))
+            msgs = data.get("history", [])
+            title = data.get("title") or (msgs[0].get("message", {}).get("content", "Continue session")[:60] if msgs else "Continue Session")
+            stat = path.stat()
+            created_dt = datetime.fromtimestamp(stat.st_mtime)
+            res.append({
+                "id": f"continue_{path.stem}",
+                "harness": "continue",
+                "title": title,
+                "directory": sanitize_path(s.get("workspaceDirectory") or "~"),
+                "folder": Path(s.get("workspaceDirectory") or "~").name,
+                "model": "continue/session",
+                "provider": "continue",
+                "date_str": created_dt.strftime("%Y-%m-%d %H:%M"),
+                "time_created": int(stat.st_mtime * 1000),
+                "duration_s": 90.0,
+                "tokens_input": 0,
+                "tokens_output": 0,
+                "tokens_reasoning": 0,
+                "tokens_total": 0,
+                "cost": 0.0,
+                "message_count": len(msgs),
+                "tps": 0.0,
+                "peak_tps": 0.0,
+                "has_tool_calls": False,
+            })
+        except Exception:
+            continue
+    return res
+
+
+def get_sessions(query_params):
     search = query_params.get("q", [""])[0].lower()
-    harness_filter = query_params.get("harness", [""])[0]
+    harness_filter = query_params.get("harness", [""])[0].lower()
     folder_filter = query_params.get("folder", [""])[0]
     provider_filter = query_params.get("provider", [""])[0]
     model_filter = query_params.get("model", [""])[0]
@@ -409,123 +518,208 @@ def get_sessions(query_params):
     status_filter = query_params.get("status", [""])[0]
     date_from = query_params.get("from", [""])[0]
     date_to = query_params.get("to", [""])[0]
+    window = query_params.get("window", [""])[0]  # e.g. 10m, 1h, 6h, 1d, 3d, 7d, 30d
     sort_by = query_params.get("sort", ["date_desc"])[0]
 
-    if harness_filter and harness_filter not in ["opencode", "all"]:
-        conn.close()
-        return []
+    # Compute start_ms / end_ms from window presets or explicit date range
+    now_ms = int(time.time() * 1000)
+    start_ms = None
+    end_ms = None
 
-    sql = """
-        SELECT 
-            s.id,
-            s.title,
-            s.directory,
-            s.model,
-            s.time_created,
-            s.time_updated,
-            s.tokens_input,
-            s.tokens_output,
-            s.tokens_reasoning,
-            s.cost,
-            s.summary_files,
-            s.summary_additions,
-            s.summary_deletions,
-            COUNT(m.id) as message_count
-        FROM session s
-        LEFT JOIN message m ON s.id = m.session_id
-        GROUP BY s.id
-        ORDER BY s.time_created DESC
-    """
-    c.execute(sql)
-    rows = c.fetchall()
-
-    results = []
-    for r in rows:
-        (
-            sid,
-            title,
-            directory,
-            model_raw,
-            t_created,
-            t_updated,
-            t_in,
-            t_out,
-            t_reas,
-            cost,
-            s_files,
-            s_add,
-            s_del,
-            msg_count,
-        ) = r
-
-        folder = Path(directory).name if directory else "root"
-        sanitized_dir = sanitize_path(directory)
-
-        model_name = "unknown"
-        provider_name = "unknown"
-        if model_raw:
+    if window:
+        window_map = {
+            "10m": 10 * 60 * 1000,
+            "1h": 60 * 60 * 1000,
+            "6h": 6 * 60 * 60 * 1000,
+            "12h": 12 * 60 * 60 * 1000,
+            "1d": 24 * 60 * 60 * 1000,
+            "3d": 3 * 24 * 60 * 60 * 1000,
+            "7d": 7 * 24 * 60 * 60 * 1000,
+            "14d": 14 * 24 * 60 * 60 * 1000,
+            "30d": 30 * 24 * 60 * 60 * 1000,
+            "90d": 90 * 24 * 60 * 60 * 1000,
+        }
+        delta_ms = window_map.get(window)
+        if delta_ms:
+            start_ms = now_ms - delta_ms
+            end_ms = now_ms
+    else:
+        if date_from:
             try:
-                m_obj = json.loads(model_raw)
-                model_name = m_obj.get("id", "unknown")
-                provider_name = m_obj.get("providerID", "unknown")
-            except Exception:
-                model_name = str(model_raw)
-
-        if search and search not in (title or "").lower() and search not in folder.lower() and search not in model_name.lower():
-            continue
-        if folder_filter and folder != folder_filter:
-            continue
-        if provider_filter and provider_name != provider_filter:
-            continue
-        if model_filter and model_name != model_filter:
-            continue
-
-        created_dt = datetime.datetime.fromtimestamp(t_created / 1000) if t_created else None
-        if created_dt:
-            if date_from and created_dt.strftime("%Y-%m-%d") < date_from:
-                continue
-            if date_to and created_dt.strftime("%Y-%m-%d") > date_to:
-                continue
-
-        duration_s = (t_updated - t_created) / 1000.0 if (t_updated and t_created and t_updated > t_created) else 0.0
-
-        c.execute("""
-            SELECT data FROM message 
-            WHERE session_id = ? AND data LIKE '%assistant%' AND data LIKE '%completed%';
-        """, (sid,))
-        sess_msgs = c.fetchall()
-
-        t_gen_s = 0.0
-        t_gen_toks = 0
-        peak_turn_tps = 0.0
-        has_tool_calls = False
-
-        for (mdata,) in sess_msgs:
+                start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
+            except ValueError:
+                pass
+        if date_to:
             try:
-                d = json.loads(mdata)
-                t = d.get("time", {})
-                cr = t.get("created")
-                co = t.get("completed")
-                dur = (co - cr) / 1000.0 if (co and cr and co > cr) else 0.0
-                toks = d.get("tokens", {})
-                gen = toks.get("output", 0) + toks.get("reasoning", 0)
-                if d.get("finish") == "tool-calls" or "tool" in str(d):
-                    has_tool_calls = True
-                if gen > 0 and dur > 0.05:
-                    tps = gen / dur
-                    if tps < 250:
-                        t_gen_s += dur
-                        t_gen_toks += gen
-                        if tps > peak_turn_tps:
-                            peak_turn_tps = tps
-            except Exception:
+                end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(
+                    hour=23, minute=59, second=59).timestamp() * 1000)
+            except ValueError:
                 pass
 
-        session_tps = round(t_gen_toks / t_gen_s, 1) if t_gen_s > 0 else 0.0
+    all_raw_sessions = []
 
-        # Filter by speed tier
+    # 1. Fetch OpenCode sessions if selected
+    if not harness_filter or harness_filter in ["opencode", "all"]:
+        conn = get_db_connection()
+        if conn:
+            c = conn.cursor()
+            sql = """
+                SELECT 
+                    s.id,
+                    s.title,
+                    s.directory,
+                    s.model,
+                    s.time_created,
+                    s.time_updated,
+                    s.tokens_input,
+                    s.tokens_output,
+                    s.tokens_reasoning,
+                    s.cost,
+                    s.summary_files,
+                    s.summary_additions,
+                    s.summary_deletions,
+                    COUNT(m.id) as message_count
+                FROM session s
+                LEFT JOIN message m ON s.id = m.session_id
+                GROUP BY s.id
+                ORDER BY s.time_created DESC
+            """
+            c.execute(sql)
+            rows = c.fetchall()
+            for r in rows:
+                (
+                    sid,
+                    title,
+                    directory,
+                    model_raw,
+                    t_created,
+                    t_updated,
+                    t_in,
+                    t_out,
+                    t_reas,
+                    cost,
+                    s_files,
+                    s_add,
+                    s_del,
+                    msg_count,
+                ) = r
+
+                folder = Path(directory).name if directory else "root"
+                sanitized_dir = sanitize_path(directory)
+
+                model_name = "unknown"
+                provider_name = "unknown"
+                if model_raw:
+                    try:
+                        m_obj = json.loads(model_raw)
+                        model_name = m_obj.get("id", "unknown")
+                        provider_name = m_obj.get("providerID", "unknown")
+                    except Exception:
+                        model_name = model_raw
+
+                # Calculate duration
+                duration_s = (t_updated - t_created) / 1000 if (t_updated and t_created and t_updated > t_created) else 0
+
+                # Calculate assistant turn speeds
+                c.execute("""
+                    SELECT time_created, time_completed, tokens_output, finish_reason
+                    FROM assistant_message
+                    WHERE session_id = ?
+                """, (sid,))
+                asst_rows = c.fetchall()
+
+                asst_turn_count = len(asst_rows)
+                total_turn_tps = 0.0
+                peak_turn_tps = 0.0
+                turns_with_tps = 0
+                has_tool_calls = False
+
+                for ar in asst_rows:
+                    a_start, a_end, a_out, fin_reason = ar
+                    if fin_reason == "tool_use":
+                        has_tool_calls = True
+                    if a_start and a_end and a_end > a_start and a_out and a_out > 0:
+                        turn_dur = (a_end - a_start) / 1000
+                        if turn_dur > 0.05:
+                            turn_tps = a_out / turn_dur
+                            total_turn_tps += turn_tps
+                            turns_with_tps += 1
+                            if turn_tps > peak_turn_tps:
+                                peak_turn_tps = turn_tps
+
+                session_tps = round(total_turn_tps / turns_with_tps, 1) if turns_with_tps > 0 else 0.0
+                created_dt = datetime.fromtimestamp(t_created / 1000) if t_created else None
+
+                all_raw_sessions.append({
+                    "id": sid,
+                    "harness": "opencode",
+                    "title": title or "Untitled Session",
+                    "directory": sanitized_dir,
+                    "folder": folder,
+                    "model": model_name,
+                    "provider": provider_name,
+                    "date_str": created_dt.strftime("%Y-%m-%d %H:%M") if created_dt else "",
+                    "time_created": t_created or 0,
+                    "duration_s": round(duration_s, 1),
+                    "tokens_input": t_in or 0,
+                    "tokens_output": t_out or 0,
+                    "tokens_reasoning": t_reas or 0,
+                    "tokens_total": (t_in or 0) + (t_out or 0) + (t_reas or 0),
+                    "cost": cost or 0.0,
+                    "message_count": msg_count,
+                    "tps": session_tps,
+                    "peak_tps": round(peak_turn_tps, 1),
+                    "has_tool_calls": has_tool_calls,
+                })
+            conn.close()
+
+    # 2. Fetch OpenClaw sessions if selected
+    if not harness_filter or harness_filter in ["openclaw", "all"]:
+        all_raw_sessions.extend(get_openclaw_sessions())
+
+    # 3. Fetch Aider sessions if selected
+    if not harness_filter or harness_filter in ["aider", "all"]:
+        all_raw_sessions.extend(get_aider_sessions())
+
+    # 4. Fetch Continue sessions if selected
+    if not harness_filter or harness_filter in ["continue", "all"]:
+        all_raw_sessions.extend(get_continue_sessions())
+
+    results = []
+    for s in all_raw_sessions:
+        # Search filter
+        if search:
+            match_title = search in s["title"].lower()
+            match_folder = search in s["folder"].lower()
+            match_model = search in s["model"].lower()
+            match_provider = search in s["provider"].lower()
+            if not (match_title or match_folder or match_model or match_provider):
+                continue
+
+        # Folder filter
+        if folder_filter and s["folder"] != folder_filter:
+            continue
+
+        # Provider filter
+        if provider_filter and s["provider"] != provider_filter:
+            continue
+
+        # Model filter
+        if model_filter and model_filter not in s["model"]:
+            continue
+
+        # Date / Time window filter
+        if s.get("time_created"):
+            t_created_ms = s["time_created"]
+            if start_ms and t_created_ms < start_ms:
+                continue
+            if end_ms and t_created_ms > end_ms:
+                continue
+
+        # Speed Tier Filter
+        session_tps = s.get("tps", 0.0)
         if speed_tier:
-            if speed_tier == "<15" and session_tps >= 15:
+            if speed_tier == "<15" and (session_tps >= 15 or session_tps == 0):
                 continue
             elif speed_tier == "15-30" and not (15 <= session_tps < 30):
                 continue
@@ -537,46 +731,25 @@ def get_sessions(query_params):
                 continue
 
         # Filter by status / finish reason
-        if status_filter == "tool_calls" and not has_tool_calls:
+        if status_filter == "tool_calls" and not s.get("has_tool_calls"):
             continue
-        elif status_filter == "stop" and has_tool_calls:
+        elif status_filter == "stop" and s.get("has_tool_calls"):
             continue
 
-        results.append({
-            "id": sid,
-            "harness": "opencode",
-            "title": title or "Untitled Session",
-            "directory": sanitized_dir,
-            "folder": folder,
-            "model": model_name,
-            "provider": provider_name,
-            "date_str": created_dt.strftime("%Y-%m-%d %H:%M") if created_dt else "",
-            "time_created": t_created,
-            "duration_s": round(duration_s, 1),
-            "tokens_input": t_in,
-            "tokens_output": t_out,
-            "tokens_reasoning": t_reas,
-            "tokens_total": t_in + t_out + t_reas,
-            "cost": cost,
-            "message_count": msg_count,
-            "tps": session_tps,
-            "peak_tps": round(peak_turn_tps, 1),
-            "has_tool_calls": has_tool_calls,
-        })
+        results.append(s)
 
     # Sorting
     if sort_by == "date_desc":
-        results.sort(key=lambda x: x["time_created"], reverse=True)
+        results.sort(key=lambda x: x.get("time_created", 0), reverse=True)
     elif sort_by == "date_asc":
-        results.sort(key=lambda x: x["time_created"])
+        results.sort(key=lambda x: x.get("time_created", 0))
     elif sort_by == "tps_desc":
-        results.sort(key=lambda x: x["tps"], reverse=True)
+        results.sort(key=lambda x: x.get("tps", 0), reverse=True)
     elif sort_by == "tokens_desc":
-        results.sort(key=lambda x: x["tokens_output"], reverse=True)
+        results.sort(key=lambda x: x.get("tokens_output", 0), reverse=True)
     elif sort_by == "duration_desc":
-        results.sort(key=lambda x: x["duration_s"], reverse=True)
+        results.sort(key=lambda x: x.get("duration_s", 0), reverse=True)
 
-    conn.close()
     return results
 
 

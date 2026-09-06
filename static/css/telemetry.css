@@ -41,7 +41,7 @@
   --radius-lg:     14px;
   --radius-md:     10px;
   --radius-sm:     6px;
-  --max-w:         1440px;
+  --max-w:         1880px;
   --transition:    all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -81,8 +81,27 @@ body {
 /* Layout Container */
 .container {
   max-width: var(--max-w);
+  width: 96%;
   margin: 0 auto;
-  padding: 1.5rem 2rem 4rem;
+  padding: 1.25rem 1.5rem 4rem;
+  transition: max-width 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s ease;
+}
+
+body.layout-fullwidth .container {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+body.layout-wide .container {
+  max-width: 1920px;
+  width: 96%;
+}
+
+body.layout-standard .container {
+  max-width: 1440px;
+  width: 92%;
 }
 
 /* Header & Nav */
@@ -320,7 +339,153 @@ body {
    Customizable Dashboard System
    12-column grid layout with customizable sizes, add/remove,
    and gallery selector.
+/* ============================================================
+   Prominent Data Source / Harness Switcher Bar
    ============================================================ */
+.datasource-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.9rem 1.4rem;
+  background: rgba(18, 16, 28, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-violet);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  box-shadow: 0 8px 25px -4px rgba(0, 0, 0, 0.5), var(--glow-violet);
+}
+
+.datasource-label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--neon-cyan);
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.datasource-label .pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-acid);
+  box-shadow: 0 0 10px var(--neon-acid);
+  animation: pulse-ring 1.8s infinite;
+}
+
+.datasource-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.datasource-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-sub);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  font-family: inherit;
+}
+
+.datasource-pill:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text-main);
+  transform: translateY(-1px);
+}
+
+.datasource-pill.active {
+  background: linear-gradient(135deg, rgba(190, 72, 224, 0.3), rgba(0, 240, 255, 0.2));
+  border-color: var(--neon-cyan);
+  color: #FFFFFF;
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.3);
+}
+
+.datasource-pill .ds-icon {
+  font-size: 0.95rem;
+}
+
+.datasource-pill .ds-count {
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+}
+
+.datasource-pill.active .ds-count {
+  background: rgba(0, 240, 255, 0.25);
+  color: var(--neon-cyan);
+  font-weight: 700;
+}
+
+.datasource-pill .ds-status {
+  font-size: 0.68rem;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 700;
+  background: rgba(57, 255, 20, 0.15);
+  color: var(--neon-acid);
+}
+
+/* Global Dashboard Controls & Mode Switchers */
+.dashboard-mode-group {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 2px 4px;
+  gap: 2px;
+}
+
+.dashboard-mode-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 6px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.dashboard-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-sub);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.dashboard-mode-btn:hover {
+  color: #FFF;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dashboard-mode-btn.active {
+  background: var(--neon-violet);
+  color: #FFFFFF;
+  box-shadow: 0 0 10px rgba(190, 72, 224, 0.4);
+}
 
 .dashboard-controls-bar {
   display: flex;
@@ -395,27 +560,32 @@ body {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* 12-Column Dashboard Grid */
+/* Dashboard 12-Column Grid Layout */
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
   gap: 1.25rem;
-  margin-bottom: 2rem;
+  margin-bottom: 2.25rem;
   width: 100%;
 }
 
+.col-span-3 { grid-column: span 3; }
 .col-span-4 { grid-column: span 4; }
 .col-span-6 { grid-column: span 6; }
 .col-span-8 { grid-column: span 8; }
 .col-span-12 { grid-column: span 12; }
 
+@media (max-width: 1300px) {
+  .col-span-3 { grid-column: span 6; }
+}
+
 @media (max-width: 1100px) {
-  .col-span-4 { grid-column: span 6; }
+  .col-span-3, .col-span-4 { grid-column: span 6; }
   .col-span-8 { grid-column: span 12; }
 }
 
 @media (max-width: 768px) {
-  .col-span-4, .col-span-6, .col-span-8, .col-span-12 { grid-column: span 12; }
+  .col-span-3, .col-span-4, .col-span-6, .col-span-8, .col-span-12 { grid-column: span 12; }
 }
 
 /* Dashboard Panel Component */
@@ -472,8 +642,10 @@ body {
   gap: 0.35rem;
 }
 
-.size-pill-group {
+.size-pill-group,
+.panel-size-selector {
   display: flex;
+  align-items: center;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -481,27 +653,38 @@ body {
   gap: 2px;
 }
 
+.panel-size-selector .size-tag {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-family: "JetBrains Mono", monospace;
+  padding: 0 4px;
+  letter-spacing: 0.04em;
+}
+
 .size-btn {
   background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.68rem;
+  border: 1px solid transparent;
+  color: var(--text-sub);
+  font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: inherit;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .size-btn:hover {
-  color: var(--text-main);
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .size-btn.active {
   background: var(--neon-violet);
+  border-color: rgba(255, 255, 255, 0.25);
   color: #FFFFFF;
-  box-shadow: 0 0 8px rgba(190, 72, 224, 0.5);
+  box-shadow: 0 0 10px rgba(190, 72, 224, 0.55);
 }
 
 .panel-close-btn {
