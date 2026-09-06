@@ -55,7 +55,7 @@
             '</div>\n';
         },
         codespan({ text }) {
-          return '<code class="md-inline-code">' + text + '</code>';
+          return '<code class="md-inline-code">' + escapeHtml(text) + '</code>';
         },
         table({ header, rows }) {
           return '<div class="md-table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
@@ -86,7 +86,7 @@
       .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
       .replace(/(^|[^_\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>')
       .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>')
-      .replace(/\x01(\d+)\x01/g, (m, n) => '<code class="md-inline-code">' + store[Number(n)] + '</code>');
+      .replace(/\x01(\d+)\x01/g, (m, n) => '<code class="md-inline-code">' + escapeHtml(store[Number(n)]) + '</code>');
   }
 
   // Fallback block parser

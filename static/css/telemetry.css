@@ -2519,13 +2519,25 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 
 /* Inline code */
 .msg-text.md .md-inline-code {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.8em;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
   background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.18);
+  border: 1px solid rgba(0, 240, 255, 0.22);
   border-radius: 4px;
-  padding: 0.08rem 0.35rem;
+  padding: 0.1rem 0.38rem;
   color: var(--neon-cyan);
+  word-break: break-word;
+  white-space: break-spaces;
+  display: inline;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+[data-mode="light"] .msg-text.md .md-inline-code {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.25);
+  color: var(--accent-primary);
 }
 
 /* Fenced code blocks */
