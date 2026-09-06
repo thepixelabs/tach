@@ -1,14 +1,13 @@
 // ============================================================
-// Minimal Markdown renderer for chat messages
-// Converts AI/user text into styled, safe HTML.
-// All input is HTML-escaped before transformation, so the
-// output can be inserted via innerHTML without XSS risk.
+// Markdown Renderer for Chat Messages & Telemetry Details
+// Uses vendored marked.js with customized safe HTML rendering,
+// custom code blocks with copy buttons, and fallback parser.
 // ============================================================
 
 (function () {
   'use strict';
 
-  function esc(str) {
+  function escapeHtml(str) {
     if (str === undefined || str === null) return '';
     return String(str)
       .replace(/&/g, '&amp;')
@@ -18,220 +17,7 @@
       .replace(/'/g, '&#039;');
   }
 
-  // Only allow safe URL schemes (blocks javascript:, data:, etc.)
-  function okUrl(url) {
-    if (!url) return false;
-    if (/^(javascript|vbscript|data):/i.test(url.trim())) return false;
-    return /^(https?:\/\/|mailto:|#|\/)/i.test(url.trim());
-  }
-
-  // Inline markdown: code spans, images, links, bold, italic, strike.
-  // Input must already be HTML-escaped.
-  function inline(source) {
-    const store = [];
-    let out = source
-      // protect inline code first so other rules can't touch it
-      .replace(/`([^`\n]+)`/g, (m, c) => '\x01' + (store.push(c) - 1) + '\x01')
-      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) =>
-        okUrl(url) ? '<img class="md-img" alt="' + alt + '" src="' + url + '">' : m)
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) =>
-        okUrl(url) ? '<a href="' + url + '" target="_blank" rel="noopener">' + text + '</a>' : text)
-      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[^\w*])__([\s\S]+?)__(?!\w)/g, '$1<strong>$2</strong>')
-      .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
-      .replace(/(^|[^_\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>')
-      .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>');
-    return out.replace(/\x01(\d+)\x01/g, (m, n) =>
-      '<code class="md-inline-code">' + store[Number(n)] + '</code>');
-  }
-
-  // Block-level markdown: fences, headings, hr, quotes, lists, tables.
-  function render(src) {
-    if (!src || !String(src).trim()) return '';
-
-    const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
-    const out = [];
-    let para = [];
-    let quote = null;
-    let listStack = []; // 'ul' | 'ol' per open level
-    let openLi = []; // parallel to listStack: level's <li> is still open
-    let code = null; // { lang, buf }
-
-    const closeLists = () => {
-      for (let d = listStack.length - 1; d >= 0; d--) {
-        if (openLi[d]) {
-          out.push('</li>');
-          openLi[d] = false;
-        }
-        out.push('</' + listStack[d] + '>');
-        listStack.splice(d, 1);
-        openLi.splice(d, 1);
-      }
-    };
-    const flushPara = () => {
-      if (para.length) {
-        out.push('<p>' + para.map(l => inline(esc(l))).join('<br>') + '</p>');
-        para = [];
-      }
-    };
-    const flushQuote = () => {
-      if (quote) {
-        out.push('<blockquote>' + quote.map(l => inline(esc(l))).join('<br>') + '</blockquote>');
-        quote = null;
-      }
-    };
-    const closeCode = () => {
-      if (!code) return;
-      const lang = code.lang || 'text';
-      out.push(
-        '<div class="md-code-block">' +
-        '<div class="md-code-header">' +
-        '<span class="md-code-lang">' + esc(lang) + '</span>' +
-        '<button type="button" class="md-copy-btn" onclick="copyCodeBlock(this)">copy</button>' +
-        '</div>' +
-        '<pre class="md-code"><code>' + esc(code.buf.join('\n')) + '</code></pre>' +
-        '</div>'
-      );
-      code = null;
-    };
-
-    const isTableSep = l =>
-      /-/.test(l) && /^[\s:|\-]+$/.test(l) && /\|/.test(l);
-
-    const parseRow = l =>
-      l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Inside a fenced code block: raw lines until the closing fence
-      if (code) {
-        if (/^\s*(`{3,}|~{3,})\s*$/.test(line)) closeCode();
-        else code.buf.push(line);
-        continue;
-      }
-
-      const fence = line.match(/^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$/);
-      if (fence) {
-        flushPara(); flushQuote(); closeLists();
-        code = { lang: fence[2].replace(/[+#.]/g, ''), buf: [] };
-        continue;
-      }
-
-      if (!line.trim()) {
-        flushPara(); flushQuote(); closeLists();
-        continue;
-      }
-
-      const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-      if (heading) {
-        flushPara(); flushQuote(); closeLists();
-        const lvl = Math.min(heading[1].length, 4);
-        out.push('<h' + lvl + '>' + inline(esc(heading[2])) + '</h' + lvl + '>');
-        continue;
-      }
-
-      if (/^\s*([-*_])\s*(?:\1\s*){2,}$/.test(line)) {
-        flushPara(); flushQuote(); closeLists();
-        out.push('<hr class="md-hr">');
-        continue;
-      }
-
-      const qm = line.match(/^\s*>\s?(.*)$/);
-      if (qm) {
-        flushPara(); closeLists();
-        (quote = quote || []).push(qm[1]);
-        continue;
-      }
-
-      const ulM = line.match(/^(\s*)([-*+])\s+(.*)$/);
-      const olM = line.match(/^(\s*)(\d+[.)])\s+(.*)$/);
-      const liM = ulM || olM;
-      if (liM) {
-        flushPara(); flushQuote();
-        const type = ulM ? 'ul' : 'ol';
-        const depth = Math.min(Math.floor(liM[1].replace(/\t/g, '  ').length / 2), 5);
-        const target = depth + 1;
-        // Close pending <li>s of deeper levels, pop the lists that end,
-        // then close the sibling <li> at the target level. Nested lists emit
-        // inside their parent <li>, keeping the HTML valid.
-        for (let d = listStack.length - 1; d >= target && d >= 0; d--) {
-          if (openLi[d]) {
-            out.push('</li>');
-            openLi[d] = false;
-          }
-        }
-        while (listStack.length > target) {
-          out.push('</' + listStack[listStack.length - 1] + '>');
-          listStack.pop();
-          openLi.pop();
-        }
-        if (listStack.length === target && openLi[target - 1]) {
-          out.push('</li>');
-          openLi[target - 1] = false;
-        }
-        if (listStack.length === target) {
-          if (listStack[target - 1] !== type) {
-            out.push('</' + listStack[target - 1] + '><' + type + '>');
-            listStack[target - 1] = type;
-          }
-        } else {
-          while (listStack.length < target) {
-            out.push('<' + type + '>');
-            listStack.push(type);
-            openLi.push(false);
-          }
-        }
-        out.push('<li>' + inline(esc(liM[3])));
-        openLi[target - 1] = true;
-        continue;
-      }
-
-      // Table: header row + separator row
-      if (line.includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
-        flushPara(); flushQuote(); closeLists();
-        const header = parseRow(line);
-        const aligns = parseRow(lines[i + 1]).map(c => {
-          const left = /^:/.test(c);
-          const right = /:$/.test(c);
-          if (left && right) return 'center';
-          if (right) return 'right';
-          return '';
-        });
-        i++;
-        const rows = [];
-        while (i + 1 < lines.length && lines[i + 1].includes('|') && lines[i + 1].trim()) {
-          i++;
-          rows.push(parseRow(lines[i]));
-        }
-        let t = '<div class="md-table-wrap"><table><thead><tr>' +
-          header.map((c, ci) =>
-            '<th' + (aligns[ci] ? ' style="text-align:' + aligns[ci] + '"' : '') + '>' +
-            inline(esc(c)) + '</th>').join('') +
-          '</tr></thead><tbody>';
-        rows.forEach(r => {
-          t += '<tr>' + header.map((_, ci) =>
-            '<td' + (aligns[ci] ? ' style="text-align:' + aligns[ci] + '"' : '') + '>' +
-            inline(esc(r[ci] || '')) + '</td>').join('') + '</tr>';
-        });
-        t += '</tbody></table></div>';
-        out.push(t);
-        continue;
-      }
-
-      flushQuote();
-      closeLists();
-      para.push(line);
-    }
-
-    closeCode();
-    flushPara();
-    flushQuote();
-    closeLists();
-    return out.join('');
-  }
-
-  // Copy a code block's contents (button lives in the rendered header)
+  // Copy button handler for code blocks
   window.copyCodeBlock = function (btn) {
     const block = btn.closest('.md-code-block');
     const codeEl = block && block.querySelector('.md-code code');
@@ -242,5 +28,138 @@
     }).catch(() => {});
   };
 
-  window.renderMarkdown = render;
+  // Configure marked if available
+  let markedConfigured = false;
+  function ensureMarkedConfigured() {
+    if (markedConfigured || typeof window.marked === 'undefined') return;
+    try {
+      const renderer = {
+        html({ text }) {
+          // Escape raw HTML so it displays safely as code/text rather than executing or breaking DOM
+          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+        code({ text, lang }) {
+          const rawLang = (lang || 'text').trim().split(/\s+/)[0];
+          const cleanLang = rawLang.replace(/[^a-zA-Z0-9_#-]/g, '') || 'text';
+          const escCode = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+          return '\n<div class="md-code-block">\n' +
+            '  <div class="md-code-header">\n' +
+            '    <span class="md-code-lang">' + cleanLang + '</span>\n' +
+            '    <button type="button" class="md-copy-btn" onclick="copyCodeBlock(this)">copy</button>\n' +
+            '  </div>\n' +
+            '  <pre class="md-code"><code class="language-' + cleanLang + '">' + escCode + '</code></pre>\n' +
+            '</div>\n';
+        },
+        codespan({ text }) {
+          return '<code class="md-inline-code">' + text + '</code>';
+        },
+        table({ header, rows }) {
+          return '<div class="md-table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
+        },
+        link({ href, title, text }) {
+          const safeHref = (/^(javascript|vbscript|data):/i.test((href || '').trim())) ? '#' : href;
+          const titleAttr = title ? ' title="' + escapeHtml(title) + '"' : '';
+          return '<a href="' + safeHref + '" target="_blank" rel="noopener"' + titleAttr + '>' + text + '</a>';
+        }
+      };
+
+      window.marked.use({ renderer, gfm: true, breaks: true });
+      markedConfigured = true;
+    } catch (err) {
+      console.warn('Could not configure marked renderer:', err);
+    }
+  }
+
+  // Fallback inline parser
+  function fallbackInline(source) {
+    const store = [];
+    return source
+      .replace(/`([^`]+)`/g, (m, c) => '\x01' + (store.push(c) - 1) + '\x01')
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) => '<img class="md-img" alt="' + alt + '" src="' + url + '">')
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => '<a href="' + url + '" target="_blank" rel="noopener">' + text + '</a>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^\w*])__([\s\S]+?)__(?!\w)/g, '$1<strong>$2</strong>')
+      .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+      .replace(/(^|[^_\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>')
+      .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>')
+      .replace(/\x01(\d+)\x01/g, (m, n) => '<code class="md-inline-code">' + store[Number(n)] + '</code>');
+  }
+
+  // Fallback block parser
+  function fallbackRender(src) {
+    if (!src || !String(src).trim()) return '';
+    const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+    const out = [];
+    let code = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Code fences
+      if (code) {
+        if (/^\s*(`{3,}|~{3,})\s*$/.test(line)) {
+          const lang = code.lang || 'text';
+          out.push(
+            '<div class="md-code-block">' +
+            '<div class="md-code-header"><span class="md-code-lang">' + escapeHtml(lang) + '</span>' +
+            '<button type="button" class="md-copy-btn" onclick="copyCodeBlock(this)">copy</button></div>' +
+            '<pre class="md-code"><code>' + escapeHtml(code.buf.join('\n')) + '</code></pre></div>'
+          );
+          code = null;
+        } else {
+          code.buf.push(line);
+        }
+        continue;
+      }
+
+      const fence = line.match(/^\s*(`{3,}|~{3,})\s*([a-zA-Z0-9_#-]*)/);
+      if (fence) {
+        code = { lang: fence[2] || 'text', buf: [] };
+        continue;
+      }
+
+      if (!line.trim()) {
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        const lvl = Math.min(heading[1].length, 4);
+        out.push('<h' + lvl + '>' + fallbackInline(escapeHtml(heading[2])) + '</h' + lvl + '>');
+        continue;
+      }
+
+      out.push('<p>' + fallbackInline(escapeHtml(line)) + '</p>');
+    }
+
+    if (code) {
+      out.push(
+        '<div class="md-code-block">' +
+        '<div class="md-code-header"><span class="md-code-lang">' + escapeHtml(code.lang || 'text') + '</span></div>' +
+        '<pre class="md-code"><code>' + escapeHtml(code.buf.join('\n')) + '</code></pre></div>'
+      );
+    }
+
+    return out.join('');
+  }
+
+  // Primary entrypoint
+  window.renderMarkdown = function (src) {
+    if (!src || !String(src).trim()) return '';
+    ensureMarkedConfigured();
+
+    if (typeof window.marked !== 'undefined' && typeof window.marked.parse === 'function') {
+      try {
+        return window.marked.parse(String(src));
+      } catch (err) {
+        console.error('marked.parse error, falling back:', err);
+      }
+    }
+
+    return fallbackRender(src);
+  };
 })();

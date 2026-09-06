@@ -2013,11 +2013,12 @@ function renderSessionDrawer(detail) {
       let partsHtml = '';
 
       (msg.parts || []).forEach(p => {
-        if (p.type === 'reasoning' && p.content) {
+        if (p.type === 'reasoning' && (p.content || p.text)) {
+          const reasoningContent = p.content || p.text || '';
           partsHtml += `
             <details class="thinking-box" open>
-              <summary class="thinking-title">🧠 Reasoning Chain (${p.content.length} chars)</summary>
-              <div class="msg-text" style="font-family:monospace;font-size:0.8rem;white-space:pre-wrap;margin-top:0.4rem;">${escapeHtml(p.content)}</div>
+              <summary class="thinking-title">🧠 Reasoning Chain (${reasoningContent.length} chars)</summary>
+              <div class="msg-text md thinking-content" style="font-size:0.8rem;margin-top:0.4rem;line-height:1.5;">${renderMarkdown(reasoningContent)}</div>
             </details>
           `;
         } else if (p.type === 'tool') {
@@ -2036,10 +2037,14 @@ ${escapeHtml(JSON.stringify(p.input, null, 2))}
 ${escapeHtml(outPreview)}</div>
             </details>
           `;
-        } else if (p.type === 'text' && p.content) {
-          partsHtml += `<div class="msg-text md">${renderMarkdown(p.content)}</div>`;
+        } else if (p.type === 'text' && (p.content || p.text)) {
+          partsHtml += `<div class="msg-text md">${renderMarkdown(p.content || p.text)}</div>`;
         }
       });
+
+      if (!partsHtml && (msg.content || msg.text)) {
+        partsHtml += `<div class="msg-text md">${renderMarkdown(msg.content || msg.text)}</div>`;
+      }
 
       const tpsBadge = !isUser && msg.tps > 0 
         ? `<span class="msg-speed-pill mono">⚡ ${msg.tps} tok/s</span>` 

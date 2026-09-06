@@ -2408,6 +2408,26 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thinking-box .thinking-content {
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.thinking-box .thinking-content strong {
+  color: var(--text-main);
+}
+
+.thinking-box .thinking-content h1,
+.thinking-box .thinking-content h2,
+.thinking-box .thinking-content h3 {
+  color: var(--neon-pink);
+  font-size: 0.88rem;
+  margin: 0.6rem 0 0.25rem;
 }
 
 /* Tool Execution Box */
