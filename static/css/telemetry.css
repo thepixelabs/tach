@@ -828,147 +828,130 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   display: none !important;
 }
 
-/* In Edit Mode: Panels acquire blueprint dashed border */
+/* In Edit Mode: Panels acquire clean blueprint dashed border */
 .is-editing .dashboard-panel {
-  border: 1.5px dashed var(--accent-primary) !important;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  border: 1px dashed var(--border-active) !important;
   position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.is-editing .dashboard-panel:hover {
+  border-color: var(--accent-primary) !important;
 }
 
-/* In Edit Mode: Move Handle Badge POP */
+/* In Edit Mode: Sleek Minimal Drag Handle (6-dot icon button) */
 .is-editing .panel-drag-handle {
   display: inline-flex !important;
   align-items: center;
-  gap: 0.35rem;
-  background: var(--accent-primary);
-  color: #FFFFFF !important;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 0.3rem 0.65rem;
-  border-radius: 6px;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-sub);
+  font-size: 0.85rem;
   cursor: grab;
-  box-shadow: 0 0 12px var(--accent-primary);
-  transition: transform 0.15s ease;
   user-select: none;
+  transition: all 0.15s ease;
+  margin-right: 0.35rem;
+}
+.is-editing .panel-drag-handle:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--border-active);
+  color: var(--accent-primary);
 }
 .is-editing .panel-drag-handle:active {
   cursor: grabbing;
-  transform: scale(0.97);
-}
-.is-editing .panel-drag-handle::after {
-  content: "MOVE";
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-  font-family: var(--font-display);
+  background: var(--accent-primary);
+  color: #FFFFFF;
 }
 
-/* In Edit Mode: Resize Handle Badge POP */
+/* In Edit Mode: Sleek Minimal Resize Handle (corner grip) */
 .is-editing .panel-resize-handle {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: auto !important;
-  height: auto !important;
-  padding: 0.35rem 0.75rem;
-  background: var(--accent-primary);
-  color: #FFFFFF !important;
-  font-size: 0.8rem;
-  font-weight: 700;
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 14px var(--accent-primary);
+  bottom: 4px;
+  right: 4px;
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
   cursor: nwse-resize;
   z-index: 20;
   user-select: none;
-  opacity: 1 !important;
-  transition: transform 0.15s ease;
+  opacity: 0.8;
+  transition: all 0.15s ease;
 }
 .is-editing .panel-resize-handle:hover {
-  transform: scale(1.08);
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--border-active);
+  color: var(--accent-primary);
+  transform: scale(1.05);
 }
-.is-editing .panel-resize-handle::after {
-  content: "RESIZE";
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-  font-family: var(--font-display);
+.is-editing .panel-resize-handle:active {
+  background: var(--accent-primary);
+  color: #FFFFFF;
 }
 
-/* In Edit Mode: Close & Expand Buttons POP */
+/* In Edit Mode: Refined Close & Expand Controls */
 .is-editing .panel-close-btn {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1.5px solid rgba(239, 68, 68, 0.6);
-  color: #EF4444;
-  border-radius: 7px;
-  font-size: 0.95rem;
-  font-weight: 800;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  border-radius: 4px;
+  font-size: 0.75rem;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
   transition: all 0.15s ease;
 }
 .is-editing .panel-close-btn:hover {
-  background: #EF4444;
-  color: #FFFFFF;
-  transform: scale(1.08);
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #EF4444;
 }
 
 .is-editing .panel-expand-btn {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: rgba(99, 102, 241, 0.2);
-  border: 1.5px solid var(--border-active);
-  color: var(--accent-primary);
-  border-radius: 7px;
-  font-size: 1rem;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  border-radius: 4px;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .is-editing .panel-expand-btn:hover {
-  background: var(--accent-primary);
-  color: #FFFFFF;
-  transform: scale(1.08);
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--border-active);
+  color: var(--accent-primary);
 }
 
-/* Live Drag Placement Preview Placeholder (Architectural Blueprint) */
+/* Live Drag Placement Preview Placeholder (Clean Wireframe) */
 .drag-placeholder {
-  border: 2px dashed var(--accent-primary) !important;
-  background: 
-    radial-gradient(circle, var(--accent-primary) 1.5px, transparent 1.5px),
-    repeating-linear-gradient(45deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08) 12px, transparent 12px, transparent 24px) !important;
-  background-size: 24px 24px, auto;
+  border: 1.5px dashed var(--border-active) !important;
+  background: rgba(99, 102, 241, 0.04) !important;
   border-radius: var(--radius-lg);
-  min-height: 220px;
+  min-height: 180px;
   pointer-events: none;
-  box-shadow: 0 0 24px var(--accent-primary), inset 0 0 24px rgba(99, 102, 241, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: pulseGhost 1.8s infinite;
-  position: relative;
-}
-
-.drag-placeholder::after {
-  content: "⤡ DROP ZONE HERE";
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--accent-primary);
-  background: var(--bg-panel-solid);
-  padding: 0.45rem 1rem;
-  border-radius: 7px;
-  border: 1.5px solid var(--accent-primary);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.15s ease;
 }
 
 @keyframes pulseGhost {
