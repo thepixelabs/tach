@@ -53,9 +53,21 @@
     const out = [];
     let para = [];
     let quote = null;
-    let listStack = [];
+    let listStack = []; // 'ul' | 'ol' per open level
+    let openLi = []; // parallel to listStack: level's <li> is still open
     let code = null; // { lang, buf }
 
+    const closeLists = () => {
+      for (let d = listStack.length - 1; d >= 0; d--) {
+        if (openLi[d]) {
+          out.push('</li>');
+          openLi[d] = false;
+        }
+        out.push('</' + listStack[d] + '>');
+        listStack.splice(d, 1);
+        openLi.splice(d, 1);
+      }
+    };
     const flushPara = () => {
       if (para.length) {
         out.push('<p>' + para.map(l => inline(esc(l))).join('<br>') + '</p>');
@@ -67,9 +79,6 @@
         out.push('<blockquote>' + quote.map(l => inline(esc(l))).join('<br>') + '</blockquote>');
         quote = null;
       }
-    };
-    const closeLists = () => {
-      while (listStack.length) out.push('</' + listStack.pop() + '>');
     };
     const closeCode = () => {
       if (!code) return;
@@ -129,9 +138,6 @@
       }
 
       const qm = line.match(/^\s*>\s?(.*)$/);
-      if (qm && !/^\s*>\s*$/.test(line) ? line.trim() === '>' || qm[1].trim() ? qm : null : null) {
-        // falls through when empty quote marker; handled below
-      }
       if (qm) {
         flushPara(); closeLists();
         (quote = quote || []).push(qm[1]);
@@ -146,16 +152,38 @@
         const type = ulM ? 'ul' : 'ol';
         const depth = Math.min(Math.floor(liM[1].replace(/\t/g, '  ').length / 2), 5);
         const target = depth + 1;
-        while (listStack.length > target) out.push('</' + listStack.pop() + '>');
+        // Close pending <li>s of deeper levels, pop the lists that end,
+        // then close the sibling <li> at the target level. Nested lists emit
+        // inside their parent <li>, keeping the HTML valid.
+        for (let d = listStack.length - 1; d >= target && d >= 0; d--) {
+          if (openLi[d]) {
+            out.push('</li>');
+            openLi[d] = false;
+          }
+        }
+        while (listStack.length > target) {
+          out.push('</' + listStack[listStack.length - 1] + '>');
+          listStack.pop();
+          openLi.pop();
+        }
+        if (listStack.length === target && openLi[target - 1]) {
+          out.push('</li>');
+          openLi[target - 1] = false;
+        }
         if (listStack.length === target) {
           if (listStack[target - 1] !== type) {
-            out.push('</' + listStack.pop() + '>');
-            listStack.push(type);
+            out.push('</' + listStack[target - 1] + '><' + type + '>');
+            listStack[target - 1] = type;
           }
         } else {
-          while (listStack.length < target) listStack.push(type);
+          while (listStack.length < target) {
+            out.push('<' + type + '>');
+            listStack.push(type);
+            openLi.push(false);
+          }
         }
-        out.push('<li>' + inline(esc(liM[3])) + '</li>');
+        out.push('<li>' + inline(esc(liM[3])));
+        openLi[target - 1] = true;
         continue;
       }
 
@@ -163,8 +191,13 @@
       if (line.includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
         flushPara(); flushQuote(); closeLists();
         const header = parseRow(line);
-        const aligns = parseRow(lines[i + 1]).map(c =>
-          /^:-+:/.test(c) ? 'center' : (/-+:$/.test(c) ? 'right' : ''));
+        const aligns = parseRow(lines[i + 1]).map(c => {
+          const left = /^:/.test(c);
+          const right = /:$/.test(c);
+          if (left && right) return 'center';
+          if (right) return 'right';
+          return '';
+        });
         i++;
         const rows = [];
         while (i + 1 < lines.length && lines[i + 1].includes('|') && lines[i + 1].trim()) {
@@ -187,6 +220,7 @@
       }
 
       flushQuote();
+      closeLists();
       para.push(line);
     }
 

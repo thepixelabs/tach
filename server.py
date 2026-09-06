@@ -8,9 +8,9 @@ import os
 import sys
 import json
 import sqlite3
-import datetime
+import time
+from datetime import datetime
 import urllib.request
-import urllib.error
 import argparse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -233,26 +233,73 @@ def check_live_status():
     return status
 
 
-def get_all_stats():
+def get_all_stats(query_params=None):
     conn = get_db_connection()
     if not conn:
         return {"error": "Database not found", "db_path": sanitize_path(str(CONFIG["opencode_db"]))}
 
     c = conn.cursor()
 
-    c.execute("SELECT COUNT(*) FROM session;")
+    # Time window calculation
+    start_ms = None
+    end_ms = None
+    now_ms = int(time.time() * 1000)
+
+    if query_params:
+        window = query_params.get("window", [""])[0]
+        date_from = query_params.get("from", [""])[0]
+        date_to = query_params.get("to", [""])[0]
+        if window:
+            window_map = {
+                "10m": 10 * 60 * 1000,
+                "1h": 60 * 60 * 1000,
+                "6h": 6 * 60 * 60 * 1000,
+                "12h": 12 * 60 * 60 * 1000,
+                "1d": 24 * 60 * 60 * 1000,
+                "3d": 3 * 24 * 60 * 60 * 1000,
+                "7d": 7 * 24 * 60 * 60 * 1000,
+                "14d": 14 * 24 * 60 * 60 * 1000,
+                "30d": 30 * 24 * 60 * 60 * 1000,
+                "90d": 90 * 24 * 60 * 60 * 1000,
+            }
+            delta_ms = window_map.get(window)
+            if delta_ms:
+                start_ms = now_ms - delta_ms
+                end_ms = now_ms
+        else:
+            if date_from:
+                try:
+                    start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp() * 1000)
+                except ValueError:
+                    pass
+
+    where_sess = ""
+    sess_params = []
+    if start_ms and end_ms:
+        where_sess = "WHERE time_created >= ? AND time_created <= ?"
+        sess_params = [start_ms, end_ms]
+    elif start_ms:
+        where_sess = "WHERE time_created >= ?"
+        sess_params = [start_ms]
+
+    c.execute(f"SELECT COUNT(*) FROM session {where_sess};", sess_params)
     total_sessions = c.fetchone()[0]
 
     c.execute("SELECT COUNT(*) FROM message;")
     total_messages = c.fetchone()[0]
 
-    c.execute("""
+    c.execute(f"""
         SELECT 
             COALESCE(SUM(tokens_input), 0),
             COALESCE(SUM(tokens_output), 0),
             COALESCE(SUM(tokens_reasoning), 0)
-        FROM session;
-    """)
+        FROM session {where_sess};
+    """, sess_params)
     sum_in, sum_out, sum_reas = c.fetchone()
 
     c.execute("SELECT data FROM message WHERE data LIKE '%assistant%';")
@@ -620,32 +667,43 @@ def get_sessions(query_params):
                 # Calculate duration
                 duration_s = (t_updated - t_created) / 1000 if (t_updated and t_created and t_updated > t_created) else 0
 
-                # Calculate assistant turn speeds
+                # Calculate assistant turn speeds from message table
                 c.execute("""
-                    SELECT time_created, time_completed, tokens_output, finish_reason
-                    FROM assistant_message
-                    WHERE session_id = ?
+                    SELECT id, data
+                    FROM message
+                    WHERE session_id = ? AND data LIKE '%assistant%'
                 """, (sid,))
                 asst_rows = c.fetchall()
 
-                asst_turn_count = len(asst_rows)
                 total_turn_tps = 0.0
                 peak_turn_tps = 0.0
                 turns_with_tps = 0
                 has_tool_calls = False
 
-                for ar in asst_rows:
-                    a_start, a_end, a_out, fin_reason = ar
-                    if fin_reason == "tool_use":
-                        has_tool_calls = True
-                    if a_start and a_end and a_end > a_start and a_out and a_out > 0:
-                        turn_dur = (a_end - a_start) / 1000
-                        if turn_dur > 0.05:
-                            turn_tps = a_out / turn_dur
-                            total_turn_tps += turn_tps
-                            turns_with_tps += 1
-                            if turn_tps > peak_turn_tps:
-                                peak_turn_tps = turn_tps
+                for (m_id, raw_mdata) in asst_rows:
+                    try:
+                        d = json.loads(raw_mdata)
+                        if d.get("role") != "assistant":
+                            continue
+                        fin = d.get("finish", "")
+                        if fin == "tool-calls" or "tool" in str(d):
+                            has_tool_calls = True
+                        t = d.get("time", {})
+                        a_start = t.get("created")
+                        a_end = t.get("completed")
+                        toks = d.get("tokens", {})
+                        a_out = toks.get("output", 0) + toks.get("reasoning", 0)
+                        if a_start and a_end and a_end > a_start and a_out > 0:
+                            turn_dur = (a_end - a_start) / 1000.0
+                            if turn_dur > 0.05:
+                                turn_tps = a_out / turn_dur
+                                if turn_tps < 250:
+                                    total_turn_tps += turn_tps
+                                    turns_with_tps += 1
+                                    if turn_tps > peak_turn_tps:
+                                        peak_turn_tps = turn_tps
+                    except Exception:
+                        continue
 
                 session_tps = round(total_turn_tps / turns_with_tps, 1) if turns_with_tps > 0 else 0.0
                 created_dt = datetime.fromtimestamp(t_created / 1000) if t_created else None
@@ -838,7 +896,7 @@ def get_session_detail(session_id):
                 "id": mid,
                 "role": role,
                 "time_created": created,
-                "date_str": datetime.datetime.fromtimestamp(created / 1000).strftime("%H:%M:%S") if created else "",
+                "date_str": datetime.fromtimestamp(created / 1000).strftime("%H:%M:%S") if created else "",
                 "duration_s": round(dur, 2),
                 "tokens_input": inp_t,
                 "tokens_output": out_t,
@@ -864,7 +922,7 @@ def get_session_detail(session_id):
         "model": model_name,
         "provider": provider_name,
         "time_created": t_created,
-        "date_str": datetime.datetime.fromtimestamp(t_created / 1000).strftime("%Y-%m-%d %H:%M:%S") if t_created else "",
+        "date_str": datetime.fromtimestamp(t_created / 1000).strftime("%Y-%m-%d %H:%M:%S") if t_created else "",
         "duration_s": round(duration_s, 1),
         "tokens_input": t_in,
         "tokens_output": t_out,
@@ -961,15 +1019,59 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         if path == "/api/stats":
-            self.send_json(get_all_stats())
+            self.send_json(get_all_stats(query))
         elif path == "/api/sessions":
             self.send_json(get_sessions(query))
         elif path == "/api/export":
             sessions = get_sessions(query)
+            # Include deep turn telemetry for each session
+            conn = get_db_connection()
+            deep_records = []
+            for s in sessions:
+                record = dict(s)
+                if conn and s.get("harness") == "opencode":
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT id, data
+                        FROM message WHERE session_id = ? AND data LIKE '%assistant%' ORDER BY time_created ASC
+                    """, (s["id"],))
+                    turns = []
+                    for (t_id, raw_mdata) in c.fetchall():
+                        try:
+                            d = json.loads(raw_mdata)
+                            if d.get("role") != "assistant":
+                                continue
+                            t = d.get("time", {})
+                            t_cr = t.get("created")
+                            t_co = t.get("completed")
+                            toks = d.get("tokens", {})
+                            t_out = toks.get("output", 0) + toks.get("reasoning", 0)
+                            turn_dur = (t_co - t_cr) / 1000.0 if (t_co and t_cr and t_co > t_cr) else 0.0
+                            tps = round(t_out / turn_dur, 2) if (turn_dur > 0.05 and t_out) else 0.0
+                            turns.append({
+                                "turn_id": t_id,
+                                "time_created": t_cr,
+                                "time_completed": t_co,
+                                "duration_seconds": round(turn_dur, 3),
+                                "tokens_output": t_out or 0,
+                                "decode_tps": tps,
+                                "finish_reason": d.get("finish"),
+                            })
+                        except Exception:
+                            continue
+                    record["turns"] = turns
+                deep_records.append(record)
+            if conn:
+                conn.close()
+
             export_payload = {
-                "exported_at": datetime.datetime.now().isoformat(),
-                "total_records": len(sessions),
-                "records": sessions,
+                "exported_at": datetime.now().isoformat(),
+                "time_window": query.get("window", ["all"])[0],
+                "from": query.get("from", [""])[0],
+                "to": query.get("to", [""])[0],
+                "harness": query.get("harness", ["all"])[0],
+                "total_records": len(deep_records),
+                "records": deep_records,
             }
             self.send_json(export_payload)
         elif path.startswith("/api/session/"):

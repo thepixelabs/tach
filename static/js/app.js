@@ -14,12 +14,16 @@ const state = {
     folder: '',
     provider: '',
     model: '',
+    harness: '',
+    speed_tier: '',
+    window: 'all',
     from: '',
     to: '',
     sort: 'date_desc',
     chip: 'all',
   },
   activeSession: null,
+  activeViewId: 'default',
   gallery: {
     activeTab: 'all',
     query: '',
@@ -44,6 +48,47 @@ const DEFAULT_LAYOUT = [
   { id: 'token-volume', col: 6 },
   { id: 'live-pulse', col: 6 },
 ];
+
+// Preset Saved Views (Dispatch Framework)
+const PRESET_VIEWS = {
+  'default': {
+    name: '⚡ Default Overview',
+    layout: DEFAULT_LAYOUT,
+    filter: { window: 'all', harness: '', speed_tier: '' }
+  },
+  'mtp_speculative': {
+    name: '🚀 Speculative MTP & Latency',
+    layout: [
+      { id: 'speculative-burst', col: 6 },
+      { id: 'decode-acceleration', col: 6 },
+      { id: 'apc-cache', col: 6 },
+      { id: 'ttft-latency', col: 6 },
+      { id: 'telemetry-table', col: 12 },
+    ],
+    filter: { window: 'all', harness: '', speed_tier: '60+' }
+  },
+  'token_economics': {
+    name: '📊 Token Economics & Tools',
+    layout: [
+      { id: 'kpi-banner', col: 12 },
+      { id: 'token-volume', col: 6 },
+      { id: 'model-share', col: 6 },
+      { id: 'tool-usage', col: 6 },
+      { id: 'speed-distribution', col: 6 },
+    ],
+    filter: { window: 'all', harness: '', speed_tier: '' }
+  },
+  'realtime_monitor': {
+    name: '⏱ Real-Time Monitor',
+    layout: [
+      { id: 'live-pulse', col: 12 },
+      { id: 'telemetry-table', col: 12 },
+      { id: 'prefill-vs-decode', col: 6 },
+      { id: 'ttft-latency', col: 6 },
+    ],
+    filter: { window: '1h', harness: '', speed_tier: '' }
+  }
+};
 
 // Formatting Utilities
 function formatNum(num) {
@@ -213,8 +258,112 @@ const PANEL_REGISTRY = {
 };
 
 // ============================================================
-// DASHBOARD LAYOUT & PERSISTENCE
+// DASHBOARD LAYOUT, VIEWS & DISPATCH-STYLE CUSTOMIZATION
 // ============================================================
+function getSavedViews() {
+  try {
+    const raw = localStorage.getItem('token_telemetry_saved_views');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveSavedViews(views) {
+  try {
+    localStorage.setItem('token_telemetry_saved_views', JSON.stringify(views));
+  } catch (e) {}
+}
+
+function populateViewSelect() {
+  const sel = document.getElementById('dashboardViewSelect');
+  if (!sel) return;
+
+  const customViews = getSavedViews();
+  let html = '';
+
+  // Preset Views
+  Object.entries(PRESET_VIEWS).forEach(([id, v]) => {
+    html += `<option value="${id}">${escapeHtml(v.name)}</option>`;
+  });
+
+  // Custom User Views
+  if (Object.keys(customViews).length > 0) {
+    html += `<optgroup label="Custom Views">`;
+    Object.entries(customViews).forEach(([id, v]) => {
+      html += `<option value="${id}">${escapeHtml(v.name)}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  sel.innerHTML = html;
+  sel.value = state.activeViewId || 'default';
+}
+
+function switchDashboardView(viewId) {
+  state.activeViewId = viewId;
+  const customViews = getSavedViews();
+  const view = customViews[viewId] || PRESET_VIEWS[viewId] || PRESET_VIEWS['default'];
+
+  state.layout = JSON.parse(JSON.stringify(view.layout));
+  saveDashboardLayout();
+  renderDashboard();
+
+  if (view.filter) {
+    if (view.filter.window) setTimeWindow(view.filter.window, false);
+    if (view.filter.harness !== undefined) selectDataSource(view.filter.harness, false);
+    if (view.filter.speed_tier !== undefined) {
+      const el = document.getElementById('filterSpeedTier');
+      if (el) el.value = view.filter.speed_tier;
+      state.activeFilter.speed_tier = view.filter.speed_tier;
+    }
+    fetchStats();
+    fetchSessions();
+  }
+}
+
+function saveCurrentView() {
+  const viewId = state.activeViewId || 'default';
+  const customViews = getSavedViews();
+  const viewName = (customViews[viewId] || PRESET_VIEWS[viewId] || {}).name || viewId;
+
+  customViews[viewId] = {
+    name: viewName,
+    layout: JSON.parse(JSON.stringify(state.layout)),
+    filter: {
+      window: state.activeFilter.window || 'all',
+      harness: state.activeFilter.harness || '',
+      speed_tier: state.activeFilter.speed_tier || '',
+    },
+    updated_at: new Date().toISOString()
+  };
+  saveSavedViews(customViews);
+  showToast(`View "${viewName}" saved`);
+}
+
+function createNewViewPrompt() {
+  const name = prompt("Enter a name for this custom view:");
+  if (!name || !name.trim()) return;
+  const viewId = 'view_' + Date.now();
+  const customViews = getSavedViews();
+  customViews[viewId] = {
+    name: name.trim(),
+    layout: JSON.parse(JSON.stringify(state.layout)),
+    filter: {
+      window: state.activeFilter.window || 'all',
+      harness: state.activeFilter.harness || '',
+      speed_tier: state.activeFilter.speed_tier || '',
+    },
+    created_at: new Date().toISOString()
+  };
+  saveSavedViews(customViews);
+  populateViewSelect();
+  const sel = document.getElementById('dashboardViewSelect');
+  if (sel) sel.value = viewId;
+  switchDashboardView(viewId);
+  showToast(`Created custom view "${name.trim()}"`);
+}
+
 function loadDashboardLayout() {
   try {
     const raw = localStorage.getItem('token_telemetry_layout');
@@ -244,15 +393,7 @@ function resetDashboardLayout() {
   saveDashboardLayout();
   renderDashboard();
   renderGallery();
-}
-
-function setPanelSize(panelId, col) {
-  const item = state.layout.find(p => p.id === panelId);
-  if (item) {
-    item.col = Number(col);
-    saveDashboardLayout();
-    renderDashboard();
-  }
+  showToast('Dashboard layout reset to default');
 }
 
 function removePanel(panelId) {
@@ -272,6 +413,151 @@ function addPanel(panelId) {
   renderGallery();
 }
 
+function togglePanelExpand(panelId) {
+  const item = state.layout.find(p => p.id === panelId);
+  if (!item) return;
+
+  if (item.col === 12) {
+    item.col = item._prevCol || 6;
+  } else {
+    item._prevCol = item.col;
+    item.col = 12;
+  }
+  saveDashboardLayout();
+  renderDashboard();
+}
+
+// Fluid Drag Resize Implementation (Dispatch Pattern)
+let resizeState = null;
+
+function initPanelResize(e, panelId) {
+  e.preventDefault();
+  e.stopPropagation();
+  const panelEl = document.getElementById('panel-' + panelId);
+  if (!panelEl) return;
+
+  const item = state.layout.find(p => p.id === panelId);
+  if (!item) return;
+
+  const rect = panelEl.getBoundingClientRect();
+  const gridEl = document.getElementById('dashboardGrid');
+  const gridRect = gridEl.getBoundingClientRect();
+  const colWidth = gridRect.width / 12;
+
+  resizeState = {
+    panelId,
+    item,
+    panelEl,
+    startX: e.clientX,
+    startY: e.clientY,
+    startW: rect.width,
+    startH: rect.height,
+    colWidth,
+  };
+
+  window.addEventListener('mousemove', onPanelResizeMove);
+  window.addEventListener('mouseup', onPanelResizeEnd);
+  document.body.style.cursor = 'nwse-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onPanelResizeMove(e) {
+  if (!resizeState) return;
+  const dx = e.clientX - resizeState.startX;
+  const dy = e.clientY - resizeState.startY;
+
+  // Calculate new column width
+  const rawCol = Math.round((resizeState.startW + dx) / resizeState.colWidth);
+  const newCol = Math.max(3, Math.min(12, rawCol));
+
+  // Snap to standard responsive tiers: 3, 4, 6, 8, 9, 12
+  const snappedCols = [3, 4, 6, 8, 9, 12];
+  const closestCol = snappedCols.reduce((prev, curr) => 
+    Math.abs(curr - newCol) < Math.abs(prev - newCol) ? curr : prev
+  );
+
+  if (closestCol !== resizeState.item.col) {
+    resizeState.item.col = closestCol;
+    resizeState.panelEl.className = resizeState.panelEl.className.replace(/col-span-\d+/, 'col-span-' + closestCol);
+  }
+
+  // Adjust height if dragged vertically
+  const newH = Math.max(160, resizeState.startH + dy);
+  resizeState.panelEl.style.minHeight = Math.round(newH) + 'px';
+  resizeState.item.height = Math.round(newH);
+}
+
+function onPanelResizeEnd() {
+  if (!resizeState) return;
+  window.removeEventListener('mousemove', onPanelResizeMove);
+  window.removeEventListener('mouseup', onPanelResizeEnd);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  saveDashboardLayout();
+  resizeState = null;
+  window.dispatchEvent(new Event('resize'));
+}
+
+// Drag to Reorder Implementation (Dispatch Pattern)
+let draggedPanelId = null;
+
+function onPanelDragStart(e, panelId) {
+  draggedPanelId = panelId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', panelId);
+  const panelEl = document.getElementById('panel-' + panelId);
+  if (panelEl) panelEl.classList.add('is-dragging');
+}
+
+function initDragReorder() {
+  const grid = document.getElementById('dashboardGrid');
+  if (!grid || grid._dragInitialized) return;
+  grid._dragInitialized = true;
+
+  grid.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const targetPanel = e.target.closest('.dashboard-panel');
+    document.querySelectorAll('.dashboard-panel').forEach(p => p.classList.remove('drag-over'));
+    if (targetPanel && targetPanel.id !== 'panel-' + draggedPanelId) {
+      targetPanel.classList.add('drag-over');
+    }
+  });
+
+  grid.addEventListener('drop', e => {
+    e.preventDefault();
+    document.querySelectorAll('.dashboard-panel').forEach(p => {
+      p.classList.remove('is-dragging');
+      p.classList.remove('drag-over');
+    });
+
+    const targetPanel = e.target.closest('.dashboard-panel');
+    if (!targetPanel || !draggedPanelId) return;
+
+    const targetId = targetPanel.id.replace('panel-', '');
+    if (targetId === draggedPanelId) return;
+
+    const fromIdx = state.layout.findIndex(p => p.id === draggedPanelId);
+    const toIdx = state.layout.findIndex(p => p.id === targetId);
+
+    if (fromIdx >= 0 && toIdx >= 0) {
+      const [moved] = state.layout.splice(fromIdx, 1);
+      state.layout.splice(toIdx, 0, moved);
+      saveDashboardLayout();
+      renderDashboard();
+    }
+    draggedPanelId = null;
+  });
+
+  grid.addEventListener('dragend', () => {
+    document.querySelectorAll('.dashboard-panel').forEach(p => {
+      p.classList.remove('is-dragging');
+      p.classList.remove('drag-over');
+    });
+    draggedPanelId = null;
+  });
+}
+
 function cleanupResizeObservers() {
   state.resizeObservers.forEach(obs => obs.disconnect());
   state.resizeObservers.clear();
@@ -285,7 +571,7 @@ function renderDashboard() {
 
   const badge = document.getElementById('activeWidgetsBadge');
   if (badge) {
-    badge.textContent = state.layout.length + ' Active Panels';
+    badge.textContent = state.layout.length + ' Panels';
   }
 
   if (state.layout.length === 0) {
@@ -304,30 +590,24 @@ function renderDashboard() {
     if (!def) return;
 
     const colClass = 'col-span-' + (item.col || 6);
-    const isSpecialKpi = item.id === 'kpi-banner';
+    const styleAttr = item.height ? `style="min-height:${item.height}px;"` : '';
 
     html += `
-      <div class="dashboard-panel ${colClass}" id="panel-${item.id}">
+      <div class="dashboard-panel ${colClass}" id="panel-${item.id}" ${styleAttr}>
         <div class="panel-header">
           <div class="panel-title-wrap">
+            <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">⠿</span>
             <span class="panel-icon">${def.icon}</span>
             <span>${escapeHtml(def.title)}</span>
           </div>
           <div class="panel-actions">
-            ${
-              !isSpecialKpi ? `
-              <div class="size-pill-group" title="Set card width">
-                <button class="size-btn ${item.col === 4 ? 'active' : ''}" onclick="setPanelSize('${item.id}', 4)" title="1/3 Width (4 cols)">⅓</button>
-                <button class="size-btn ${item.col === 6 ? 'active' : ''}" onclick="setPanelSize('${item.id}', 6)" title="1/2 Width (6 cols)">½</button>
-                <button class="size-btn ${item.col === 12 ? 'active' : ''}" onclick="setPanelSize('${item.id}', 12)" title="Full Width (12 cols)">1/1</button>
-              </div>
-              ` : ''
-            }
+            <button class="panel-expand-btn" onclick="togglePanelExpand('${item.id}')" title="Toggle Full Width / Restore Width">⤢</button>
             <button class="panel-close-btn" onclick="removePanel('${item.id}')" title="Remove panel from dashboard">✕</button>
           </div>
         </div>
         <div class="panel-body" id="panel-body-${item.id}">
         </div>
+        <div class="panel-resize-handle" title="Drag to fluidly adjust width & height" onmousedown="initPanelResize(event, '${item.id}')">⤡</div>
       </div>
     `;
   });
@@ -1199,13 +1479,21 @@ function renderGallery() {
 // ============================================================
 async function fetchStats() {
   try {
-    const res = await fetch('/api/stats');
+    const params = new URLSearchParams();
+    if (state.activeFilter.window) params.set('window', state.activeFilter.window);
+    if (state.activeFilter.from) params.set('from', state.activeFilter.from);
+    if (state.activeFilter.to) params.set('to', state.activeFilter.to);
+    if (state.activeFilter.harness) params.set('harness', state.activeFilter.harness);
+
+    const queryStr = params.toString() ? '?' + params.toString() : '';
+    const res = await fetch('/api/stats' + queryStr);
     state.stats = await res.json();
     if (state.stats.live) {
       state.live = state.stats.live;
     }
     renderDashboard();
     renderFilterDropdowns();
+    updateDataSourcePillCounts();
   } catch (err) {
     console.error('Failed to load stats', err);
   }
@@ -1259,6 +1547,7 @@ async function fetchSessions() {
     if (state.activeFilter.provider) params.set('provider', state.activeFilter.provider);
     if (state.activeFilter.model) params.set('model', state.activeFilter.model);
     if (state.activeFilter.speed_tier) params.set('speed_tier', state.activeFilter.speed_tier);
+    if (state.activeFilter.window) params.set('window', state.activeFilter.window);
     if (state.activeFilter.from) params.set('from', state.activeFilter.from);
     if (state.activeFilter.to) params.set('to', state.activeFilter.to);
     if (state.activeFilter.sort) params.set('sort', state.activeFilter.sort);
@@ -1279,11 +1568,117 @@ function exportFilteredData() {
   if (state.activeFilter.provider) params.set('provider', state.activeFilter.provider);
   if (state.activeFilter.model) params.set('model', state.activeFilter.model);
   if (state.activeFilter.speed_tier) params.set('speed_tier', state.activeFilter.speed_tier);
+  if (state.activeFilter.window) params.set('window', state.activeFilter.window);
   if (state.activeFilter.from) params.set('from', state.activeFilter.from);
   if (state.activeFilter.to) params.set('to', state.activeFilter.to);
   if (state.activeFilter.sort) params.set('sort', state.activeFilter.sort);
 
   window.open('/api/export?' + params.toString(), '_blank');
+}
+
+function setTimeWindow(win, triggerFetch = true) {
+  state.activeFilter.window = win;
+  state.activeFilter.from = '';
+  state.activeFilter.to = '';
+
+  document.querySelectorAll('.timewindow-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.getAttribute('data-window') === win);
+  });
+
+  const fromInput = document.getElementById('filterFromDT');
+  const toInput = document.getElementById('filterToDT');
+  if (fromInput) fromInput.value = '';
+  if (toInput) toInput.value = '';
+
+  if (triggerFetch) {
+    fetchStats();
+    fetchSessions();
+  }
+}
+
+function onCustomDateTimeChange() {
+  const fromVal = document.getElementById('filterFromDT')?.value;
+  const toVal = document.getElementById('filterToDT')?.value;
+  if (fromVal || toVal) {
+    state.activeFilter.window = '';
+    state.activeFilter.from = fromVal || '';
+    state.activeFilter.to = toVal || '';
+    document.querySelectorAll('.timewindow-pill').forEach(pill => pill.classList.remove('active'));
+    fetchStats();
+    fetchSessions();
+  }
+}
+
+function clearCustomDateTime() {
+  const fromInput = document.getElementById('filterFromDT');
+  const toInput = document.getElementById('filterToDT');
+  if (fromInput) fromInput.value = '';
+  if (toInput) toInput.value = '';
+  setTimeWindow('all');
+}
+
+function selectDataSource(harness, triggerFetch = true) {
+  state.activeFilter.harness = harness;
+  document.querySelectorAll('.datasource-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-harness') === harness);
+  });
+
+  const harnessSelect = document.getElementById('filterHarness');
+  if (harnessSelect) harnessSelect.value = harness;
+
+  if (triggerFetch) {
+    fetchStats();
+    fetchSessions();
+  }
+}
+
+function updateDataSourcePillCounts() {
+  if (!state.stats) return;
+  const countAll = document.getElementById('dsCountAll');
+  if (countAll) countAll.textContent = state.stats.total_sessions || 0;
+
+  const countOpenCode = document.getElementById('dsCountOpenCode');
+  if (countOpenCode) countOpenCode.textContent = state.stats.total_sessions || 0;
+
+  (state.stats.harnesses || []).forEach(h => {
+    if (h.id === 'openclaw') {
+      const el = document.getElementById('dsCountOpenClaw');
+      if (el) el.textContent = h.count || 0;
+    }
+    if (h.id === 'aider') {
+      const el = document.getElementById('dsCountAider');
+      if (el) el.textContent = h.count || 0;
+    }
+    if (h.id === 'continue') {
+      const el = document.getElementById('dsCountContinue');
+      if (el) el.textContent = h.count || 0;
+    }
+  });
+
+  if (state.live) {
+    const mlxEl = document.getElementById('dsStatusMlx');
+    if (mlxEl) {
+      mlxEl.textContent = state.live.mlx?.online ? 'Online' : 'Offline';
+    }
+    const ollamaEl = document.getElementById('dsStatusOllama');
+    if (ollamaEl) {
+      ollamaEl.textContent = state.live.ollama?.online ? 'Online' : 'Offline';
+    }
+  }
+}
+
+function showToast(msg) {
+  let toast = document.getElementById('toastNotification');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toastNotification';
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:rgba(18,16,28,0.94);border:1px solid var(--neon-violet);color:#FFF;padding:0.6rem 1.1rem;border-radius:8px;box-shadow:0 0 16px rgba(190,72,224,0.4);font-family:"Space Grotesk",sans-serif;font-size:0.82rem;font-weight:600;z-index:9999;transition:opacity 0.25s ease;pointer-events:none;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => { toast.style.opacity = '0'; }, 2200);
 }
 
 async function openSessionDetail(sessionId) {
@@ -1482,7 +1877,7 @@ ${escapeHtml(outPreview)}</div>
             </details>
           `;
         } else if (p.type === 'text' && p.content) {
-          partsHtml += `<div class="msg-text">${escapeHtml(p.content)}</div>`;
+          partsHtml += `<div class="msg-text md">${renderMarkdown(p.content)}</div>`;
         }
       });
 
@@ -1555,6 +1950,8 @@ window.addEventListener('keydown', e => {
 
 window.addEventListener('DOMContentLoaded', () => {
   loadDashboardLayout();
+  populateViewSelect();
+  initDragReorder();
   fetchStats();
   fetchTimeseries();
   fetchSessions();

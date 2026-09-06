@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Token Telemetry & Model Observatory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/telemetry.css">
 </head>
 <body>
@@ -16,7 +19,7 @@
         <div class="brand-icon">⚡</div>
         <div>
           <h1 class="brand-title">TOKEN TELEMETRY</h1>
-          <div class="brand-subtitle mono">Local LLM Performance & Session Observatory</div>
+          <div class="brand-subtitle mono">Local LLM Performance & Agent Observatory</div>
         </div>
       </div>
 
@@ -33,7 +36,7 @@
     <section class="datasource-bar" id="datasourceBar">
       <div class="datasource-label">
         <span class="pulse-dot"></span>
-        <span>Data Source:</span>
+        <span>Source:</span>
       </div>
       <div class="datasource-pills" id="datasourcePills">
         <button class="datasource-pill active" data-harness="" onclick="selectDataSource('')" title="Show unified data across all agent harnesses">
@@ -74,30 +77,67 @@
       </div>
     </section>
 
-    <!-- Dashboard Controls Bar -->
+    <!-- Granular Time Window Selector Bar -->
+    <section class="timewindow-bar" id="timewindowBar">
+      <div class="timewindow-left">
+        <div class="timewindow-label">
+          <span>⏱</span>
+          <span>Window:</span>
+        </div>
+        <div class="timewindow-pills" id="timewindowPills">
+          <button class="timewindow-pill" data-window="10m" onclick="setTimeWindow('10m')">10m</button>
+          <button class="timewindow-pill" data-window="1h" onclick="setTimeWindow('1h')">1h</button>
+          <button class="timewindow-pill" data-window="6h" onclick="setTimeWindow('6h')">6h</button>
+          <button class="timewindow-pill" data-window="1d" onclick="setTimeWindow('1d')">1d</button>
+          <button class="timewindow-pill" data-window="3d" onclick="setTimeWindow('3d')">3d</button>
+          <button class="timewindow-pill" data-window="7d" onclick="setTimeWindow('7d')">1w</button>
+          <button class="timewindow-pill" data-window="30d" onclick="setTimeWindow('30d')">1m</button>
+          <button class="timewindow-pill active" data-window="all" onclick="setTimeWindow('all')">All Time</button>
+        </div>
+      </div>
+      <div class="timewindow-right">
+        <div class="custom-timerange-group">
+          <span>From</span>
+          <input type="datetime-local" id="filterFromDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
+          <span>To</span>
+          <input type="datetime-local" id="filterToDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
+          <button class="btn-ghost-sm" onclick="clearCustomDateTime()" title="Reset custom dates">✕</button>
+        </div>
+        <button class="btn-export-neon" onclick="exportFilteredData()" title="Scrape & download filtered dataset with complete turn telemetry">
+          <span>📥</span>
+          <span>Scrape / Export JSON</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Dashboard Controls Bar (Dispatch-style Views & Layout) -->
     <div class="dashboard-controls-bar">
       <div class="dashboard-controls-left">
         <h2 class="dashboard-section-title">
           <span style="color:var(--neon-acid);">⚡</span>
           <span>Observatory</span>
         </h2>
-        <span class="badge badge-provider mono" id="activeWidgetsBadge">-- Active Panels</span>
+        <span class="badge badge-provider mono" id="activeWidgetsBadge">-- Panels</span>
       </div>
-      <div class="dashboard-controls-right">
-        <!-- Global Panel Sizing Mode -->
-        <div class="dashboard-mode-group" title="Set width for all visible dashboard panels">
-          <span class="dashboard-mode-label">Card Size:</span>
-          <button class="dashboard-mode-btn" id="btnSizeCompact" onclick="setGlobalPanelSize(4)" title="3 cards per row (33% width)">33%</button>
-          <button class="dashboard-mode-btn active" id="btnSizeBalanced" onclick="setGlobalPanelSize(6)" title="2 cards per row (50% width)">50%</button>
-          <button class="dashboard-mode-btn" id="btnSizeFull" onclick="setGlobalPanelSize(12)" title="1 card per row (100% full width)">100%</button>
-        </div>
 
-        <!-- Screen Width Selector -->
-        <div class="dashboard-mode-group" title="Adjust page container width">
-          <span class="dashboard-mode-label">Screen:</span>
-          <button class="dashboard-mode-btn active" id="btnWidthWide" onclick="setPageWidthMode('wide')" title="Ultra-wide container (1880px)">Wide</button>
-          <button class="dashboard-mode-btn" id="btnWidthFull" onclick="setPageWidthMode('fullwidth')" title="Stretch to 100% of display width">Full 100%</button>
-          <button class="dashboard-mode-btn" id="btnWidthStd" onclick="setPageWidthMode('standard')" title="Standard 1440px container">1440px</button>
+      <div class="dashboard-controls-right">
+        <!-- Saved Views / Dashboards Manager -->
+        <div class="views-manager-group" title="Dispatch-style customizable saved views">
+          <span class="views-label mono">View:</span>
+          <select id="dashboardViewSelect" class="custom-select view-select" onchange="switchDashboardView(this.value)">
+            <option value="default">⚡ Default Overview</option>
+            <option value="mtp_speculative">🚀 Speculative MTP & Latency</option>
+            <option value="token_economics">📊 Token Economics & Tools</option>
+            <option value="realtime_monitor">⏱ Real-Time Monitor</option>
+          </select>
+          <button class="btn-ghost" onclick="saveCurrentView()" title="Save current layout & filters to this view">
+            <span>💾</span>
+            <span>Save</span>
+          </button>
+          <button class="btn-ghost" onclick="createNewViewPrompt()" title="Create and name a new custom dashboard view">
+            <span>+</span>
+            <span>New View</span>
+          </button>
         </div>
 
         <button class="btn-ghost" onclick="resetDashboardLayout()" title="Restore default panel layout">
@@ -277,6 +317,7 @@
     </div>
   </div>
 
+  <script src="/js/markdown.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>
