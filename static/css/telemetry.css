@@ -316,6 +316,37 @@
   color: var(--text-main);
 }
 
+:root {
+  --font-display: 'Outfit', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fluid responsive scaling for wide monitors & 4K resolutions */
+@media (min-width: 1750px) {
+  html {
+    font-size: 17.5px;
+  }
+}
+
+@media (min-width: 2400px) {
+  html {
+    font-size: 19.5px;
+  }
+}
+
+@media (min-width: 3400px) {
+  html {
+    font-size: 22.5px; /* High-res 4K & 5K screens */
+  }
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -326,22 +357,21 @@ body.app-body {
   min-height: 100vh;
   background-color: var(--bg-dark);
   color: var(--text-main);
-  font-family: "Geist", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
   font-weight: 400;
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+  font-size: 0.95rem;
+  line-height: 1.55;
   overflow: hidden;
 }
 
-/* Headings */
-h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
-  font-family: "Space Grotesk", "Geist", sans-serif;
-  letter-spacing: -0.015em;
+/* Headings & Display Branding */
+h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-label {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 .mono {
-  font-family: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 /* ============================================================
@@ -729,6 +759,26 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   padding: 1.25rem 1.5rem;
   width: 100%;
   box-sizing: border-box;
+  transition: background 0.25s ease;
+}
+
+/* Architecture & Math Notebook Dot-Grid Canvas in Edit Mode */
+.app-shell.is-editing .app-viewport {
+  background-color: var(--bg-dark);
+  background-image: 
+    radial-gradient(circle, var(--accent-primary) 1.5px, transparent 1.5px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px, 112px 112px, 112px 112px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+[data-mode="light"] .app-shell.is-editing .app-viewport {
+  background-image: 
+    radial-gradient(circle, rgba(79, 70, 229, 0.45) 1.5px, transparent 1.5px),
+    linear-gradient(to right, rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px, 112px 112px, 112px 112px;
 }
 
 /* Edit Mode Info Banner */
@@ -736,32 +786,38 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 1.25rem;
-  margin-bottom: 1.25rem;
-  border-radius: 10px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid var(--border-active);
+  padding: 0.75rem 1.4rem;
+  margin-bottom: 1.4rem;
+  border-radius: 12px;
+  background: var(--bg-panel-solid);
+  border: 1.5px solid var(--accent-primary);
   color: var(--text-main);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
   gap: 1rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25), 0 0 16px rgba(99, 102, 241, 0.2);
   animation: fadeIn 0.2s ease;
 }
 
 .edit-layout-banner .banner-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 
 .btn-done-editing {
   background: var(--accent-primary);
-  color: #FFF;
+  color: #FFFFFF;
   border: none;
-  padding: 0.35rem 0.85rem;
-  border-radius: 6px;
+  padding: 0.45rem 1.1rem;
+  border-radius: 7px;
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   cursor: pointer;
+  box-shadow: 0 0 12px var(--accent-primary);
+  transition: transform 0.15s ease;
+}
+.btn-done-editing:hover {
+  transform: translateY(-1px);
 }
 
 /* Hide handles when NOT editing */
@@ -772,19 +828,152 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   display: none !important;
 }
 
-/* Live Drag Placement Preview Placeholder */
+/* In Edit Mode: Panels acquire blueprint dashed border */
+.is-editing .dashboard-panel {
+  border: 1.5px dashed var(--accent-primary) !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+/* In Edit Mode: Move Handle Badge POP */
+.is-editing .panel-drag-handle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--accent-primary);
+  color: #FFFFFF !important;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  cursor: grab;
+  box-shadow: 0 0 12px var(--accent-primary);
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+.is-editing .panel-drag-handle:active {
+  cursor: grabbing;
+  transform: scale(0.97);
+}
+.is-editing .panel-drag-handle::after {
+  content: "MOVE";
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  font-family: var(--font-display);
+}
+
+/* In Edit Mode: Resize Handle Badge POP */
+.is-editing .panel-resize-handle {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: auto !important;
+  height: auto !important;
+  padding: 0.35rem 0.75rem;
+  background: var(--accent-primary);
+  color: #FFFFFF !important;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 14px var(--accent-primary);
+  cursor: nwse-resize;
+  z-index: 20;
+  user-select: none;
+  opacity: 1 !important;
+  transition: transform 0.15s ease;
+}
+.is-editing .panel-resize-handle:hover {
+  transform: scale(1.08);
+}
+.is-editing .panel-resize-handle::after {
+  content: "RESIZE";
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  font-family: var(--font-display);
+}
+
+/* In Edit Mode: Close & Expand Buttons POP */
+.is-editing .panel-close-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1.5px solid rgba(239, 68, 68, 0.6);
+  color: #EF4444;
+  border-radius: 7px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+  transition: all 0.15s ease;
+}
+.is-editing .panel-close-btn:hover {
+  background: #EF4444;
+  color: #FFFFFF;
+  transform: scale(1.08);
+}
+
+.is-editing .panel-expand-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1.5px solid var(--border-active);
+  color: var(--accent-primary);
+  border-radius: 7px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.is-editing .panel-expand-btn:hover {
+  background: var(--accent-primary);
+  color: #FFFFFF;
+  transform: scale(1.08);
+}
+
+/* Live Drag Placement Preview Placeholder (Architectural Blueprint) */
 .drag-placeholder {
   border: 2px dashed var(--accent-primary) !important;
-  background: rgba(99, 102, 241, 0.08) !important;
+  background: 
+    radial-gradient(circle, var(--accent-primary) 1.5px, transparent 1.5px),
+    repeating-linear-gradient(45deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08) 12px, transparent 12px, transparent 24px) !important;
+  background-size: 24px 24px, auto;
   border-radius: var(--radius-lg);
   min-height: 220px;
   pointer-events: none;
-  animation: pulseGhost 1.5s infinite;
+  box-shadow: 0 0 24px var(--accent-primary), inset 0 0 24px rgba(99, 102, 241, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulseGhost 1.8s infinite;
+  position: relative;
+}
+
+.drag-placeholder::after {
+  content: "⤡ DROP ZONE HERE";
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent-primary);
+  background: var(--bg-panel-solid);
+  padding: 0.45rem 1rem;
+  border-radius: 7px;
+  border: 1.5px solid var(--accent-primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes pulseGhost {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 0.95; }
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
 }
 
 .brand-subtitle {
@@ -1320,23 +1509,29 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   width: 100%;
 }
 
-.col-span-3 { grid-column: span 3; }
-.col-span-4 { grid-column: span 4; }
-.col-span-6 { grid-column: span 6; }
-.col-span-8 { grid-column: span 8; }
+.col-span-1  { grid-column: span 1; }
+.col-span-2  { grid-column: span 2; }
+.col-span-3  { grid-column: span 3; }
+.col-span-4  { grid-column: span 4; }
+.col-span-5  { grid-column: span 5; }
+.col-span-6  { grid-column: span 6; }
+.col-span-7  { grid-column: span 7; }
+.col-span-8  { grid-column: span 8; }
+.col-span-9  { grid-column: span 9; }
+.col-span-10 { grid-column: span 10; }
+.col-span-11 { grid-column: span 11; }
 .col-span-12 { grid-column: span 12; }
 
-@media (max-width: 1300px) {
-  .col-span-3 { grid-column: span 6; }
-}
-
-@media (max-width: 1100px) {
-  .col-span-3, .col-span-4 { grid-column: span 6; }
-  .col-span-8 { grid-column: span 12; }
+@media (max-width: 1200px) {
+  .col-span-1, .col-span-2, .col-span-3, .col-span-4, .col-span-5 { grid-column: span 6; }
+  .col-span-7, .col-span-8, .col-span-9, .col-span-10, .col-span-11 { grid-column: span 12; }
 }
 
 @media (max-width: 768px) {
-  .col-span-3, .col-span-4, .col-span-6, .col-span-8, .col-span-12 { grid-column: span 12; }
+  .col-span-1, .col-span-2, .col-span-3, .col-span-4, .col-span-5, .col-span-6,
+  .col-span-7, .col-span-8, .col-span-9, .col-span-10, .col-span-11, .col-span-12 {
+    grid-column: span 12;
+  }
 }
 
 /* Dashboard Panel Component */
@@ -1385,6 +1580,24 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap {
   align-items: center;
   justify-content: center;
   font-size: 1rem;
+}
+
+.panel-col-badge {
+  display: none;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--accent-primary);
+  border: 1px solid var(--border-active);
+  font-family: var(--font-mono);
+  margin-left: 0.35rem;
+}
+
+.is-editing .panel-col-badge {
+  display: inline-flex !important;
 }
 
 .panel-actions {

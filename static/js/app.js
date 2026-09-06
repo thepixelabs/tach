@@ -480,23 +480,19 @@ function onPanelResizeMove(e) {
   const dx = e.clientX - resizeState.startX;
   const dy = e.clientY - resizeState.startY;
 
-  // Calculate new column width
+  // Calculate new column width in exact single-column increments (1 to 12)
   const rawCol = Math.round((resizeState.startW + dx) / resizeState.colWidth);
-  const newCol = Math.max(3, Math.min(12, rawCol));
+  const newCol = Math.max(1, Math.min(12, rawCol));
 
-  // Snap to standard responsive tiers: 3, 4, 6, 8, 9, 12
-  const snappedCols = [3, 4, 6, 8, 9, 12];
-  const closestCol = snappedCols.reduce((prev, curr) => 
-    Math.abs(curr - newCol) < Math.abs(prev - newCol) ? curr : prev
-  );
-
-  if (closestCol !== resizeState.item.col) {
-    resizeState.item.col = closestCol;
-    resizeState.panelEl.className = resizeState.panelEl.className.replace(/col-span-\d+/, 'col-span-' + closestCol);
+  if (newCol !== resizeState.item.col) {
+    resizeState.item.col = newCol;
+    resizeState.panelEl.className = resizeState.panelEl.className.replace(/col-span-\d+/, 'col-span-' + newCol);
+    const badge = document.getElementById('col-badge-' + resizeState.panelId);
+    if (badge) badge.textContent = newCol + '/12 Col';
   }
 
-  // Adjust height if dragged vertically
-  const newH = Math.max(160, resizeState.startH + dy);
+  // Adjust height if dragged vertically (can reduce down to 90px)
+  const newH = Math.max(90, resizeState.startH + dy);
   resizeState.panelEl.style.minHeight = Math.round(newH) + 'px';
   resizeState.item.height = Math.round(newH);
 }
@@ -536,7 +532,7 @@ function toggleEditLayout() {
   }
 }
 
-// Drag to Reorder with Live Placement Ghost Preview
+// Drag to Reorder with 2D Live Placement Ghost Preview
 let draggedPanelId = null;
 let dragPlaceholder = null;
 
@@ -577,11 +573,41 @@ function initDragReorder() {
     const targetPanel = e.target.closest('.dashboard-panel');
     if (targetPanel && targetPanel.id !== 'panel-' + draggedPanelId) {
       const rect = targetPanel.getBoundingClientRect();
-      const isAfter = (e.clientY > rect.top + rect.height / 2);
+      const midX = rect.left + rect.width / 2;
+      const midY = rect.top + rect.height / 2;
+
+      // In a 2D multi-column grid: if cursor is to the right on the same row, or lower down:
+      const isAfter = (e.clientY > midY + 18) || (Math.abs(e.clientY - midY) <= rect.height / 2 && e.clientX > midX);
       if (isAfter) {
         targetPanel.after(dragPlaceholder);
       } else {
         targetPanel.before(dragPlaceholder);
+      }
+    } else if (!targetPanel) {
+      // User is dragging into empty space on the right or bottom of the grid
+      const panels = Array.from(grid.querySelectorAll('.dashboard-panel:not(.is-dragging)'));
+      if (panels.length) {
+        let closest = null;
+        let minDist = Infinity;
+        panels.forEach(p => {
+          const r = p.getBoundingClientRect();
+          const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+          if (dist < minDist) {
+            minDist = dist;
+            closest = p;
+          }
+        });
+        if (closest) {
+          const r = closest.getBoundingClientRect();
+          const isAfter = (e.clientY > r.top + r.height / 2) || (e.clientX > r.left + r.width / 2);
+          if (isAfter) {
+            closest.after(dragPlaceholder);
+          } else {
+            closest.before(dragPlaceholder);
+          }
+        }
+      } else {
+        grid.appendChild(dragPlaceholder);
       }
     }
   });
@@ -671,6 +697,7 @@ function renderDashboard() {
             <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">⠿</span>
             <span class="panel-icon">${def.icon}</span>
             <span>${escapeHtml(def.title)}</span>
+            <span class="panel-col-badge mono" id="col-badge-${item.id}">${item.col || 6}/12 Col</span>
           </div>
           <div class="panel-actions">
             <button class="panel-expand-btn" onclick="togglePanelExpand('${item.id}')" title="Toggle Full Width / Restore Width">⤢</button>
