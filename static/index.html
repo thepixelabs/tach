@@ -110,7 +110,7 @@
         <div class="topbar-left">
           <div class="views-manager-group" title="Dispatch-style customizable saved views">
             <span class="views-label mono">VIEW:</span>
-            <select id="dashboardViewSelect" class="custom-select view-select" onchange="switchDashboardView(this.value)">
+            <select id="dashboardViewSelect" class="view-select" onchange="switchDashboardView(this.value)">
               <option value="default">⚡ Default Overview</option>
               <option value="mtp_speculative">🚀 Speculative MTP & Latency</option>
               <option value="token_economics">📊 Token Economics & Tools</option>
@@ -140,9 +140,9 @@
             <button class="timewindow-pill active" data-window="all" onclick="setTimeWindow('all')">All Time</button>
           </div>
           <div class="topbar-datetime-group">
-            <input type="datetime-local" id="filterFromDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
+            <input type="datetime-local" id="filterFromDT" class="dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
             <span>to</span>
-            <input type="datetime-local" id="filterToDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
+            <input type="datetime-local" id="filterToDT" class="dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
             <button class="btn-ghost-sm" onclick="clearCustomDateTime()" title="Reset custom dates">✕</button>
           </div>
         </div>

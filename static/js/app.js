@@ -928,9 +928,9 @@ function renderTelemetryTablePanel(container, appState) {
   });
 
   container.innerHTML = `
-    <div style="overflow-x:auto;max-height:300px;">
+    <div class="telemetry-table-wrap" style="flex:1;min-height:0;overflow:auto;width:100%;border-radius:6px;">
       <table style="width:100%;border-collapse:collapse;text-align:left;">
-        <thead>
+        <thead style="position:sticky;top:0;background:var(--bg-panel-solid);z-index:2;box-shadow:0 1px 0 var(--border-subtle);">
           <tr style="border-bottom:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">
             <th style="padding:0.5rem 0.75rem;">ID</th>
             <th style="padding:0.5rem 0.75rem;">Model</th>
@@ -2106,7 +2106,7 @@ function renderSessionsExplorerWidget(container, appState, item) {
           </div>
         </div>
       </div>
-      <div class="sessions-container sessions-list" style="flex:1;overflow-y:auto;max-height:${Math.max(panelH - 120, 320)}px;padding-right:4px;">
+      <div class="sessions-container sessions-list" style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;">
         <!-- Populated by renderSessionsList() -->
       </div>
     </div>
