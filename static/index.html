@@ -1,241 +1,307 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="subtle" data-mode="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Token Telemetry & Model Observatory</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/telemetry.css">
 </head>
-<body>
+<body class="app-body">
 
-  <div class="container">
-
-    <!-- Header Navigation -->
-    <header class="header">
-      <div class="brand">
-        <div class="brand-icon">⚡</div>
-        <div>
-          <h1 class="brand-title">TOKEN TELEMETRY</h1>
-          <div class="brand-subtitle mono">Local LLM Performance & Agent Observatory</div>
+  <div class="app-shell">
+    
+    <!-- Handy Left Navigation Menu / Sidebar -->
+    <aside class="app-sidebar" id="appSidebar">
+      <div class="sidebar-header">
+        <div class="brand-badge">⚡</div>
+        <div class="brand-text">
+          <div class="brand-title">TOKEN TELEMETRY</div>
+          <div class="brand-sub mono">Model Observatory</div>
         </div>
       </div>
 
-      <!-- Live Server Badges -->
-      <div class="live-status-bar" id="liveStatusBar">
-        <div class="status-pill">
-          <span class="status-indicator"></span>
-          <span>Checking Backends...</span>
-        </div>
-      </div>
-    </header>
-
-    <!-- Prominent Data Source / Harness Switcher Bar -->
-    <section class="datasource-bar" id="datasourceBar">
-      <div class="datasource-label">
-        <span class="pulse-dot"></span>
-        <span>Source:</span>
-      </div>
-      <div class="datasource-pills" id="datasourcePills">
-        <button class="datasource-pill active" data-harness="" onclick="selectDataSource('')" title="Show unified data across all agent harnesses">
-          <span class="ds-icon">🌐</span>
-          <span class="ds-name">All Sources</span>
-          <span class="ds-count mono" id="dsCountAll">--</span>
-        </button>
-        <button class="datasource-pill" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
-          <span class="ds-icon">⚡</span>
-          <span class="ds-name">OpenCode</span>
-          <span class="ds-count mono" id="dsCountOpenCode">--</span>
-        </button>
-        <button class="datasource-pill" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw gateway sessions and task runs">
-          <span class="ds-icon">🐾</span>
-          <span class="ds-name">OpenClaw</span>
-          <span class="ds-count mono" id="dsCountOpenClaw">--</span>
-        </button>
-        <button class="datasource-pill" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
-          <span class="ds-icon">🤖</span>
-          <span class="ds-name">Aider</span>
-          <span class="ds-count mono" id="dsCountAider">--</span>
-        </button>
-        <button class="datasource-pill" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE assistant sessions">
-          <span class="ds-icon">🚀</span>
-          <span class="ds-name">Continue</span>
-          <span class="ds-count mono" id="dsCountContinue">--</span>
-        </button>
-        <button class="datasource-pill" data-harness="mlx" onclick="selectDataSource('mlx')" title="Live Apple Silicon MLX LM Server (port 8080)">
-          <span class="ds-icon">🟢</span>
-          <span class="ds-name">MLX LM</span>
-          <span class="ds-status mono" id="dsStatusMlx">Live</span>
-        </button>
-        <button class="datasource-pill" data-harness="ollama" onclick="selectDataSource('ollama')" title="Live Ollama Daemon (port 11434)">
-          <span class="ds-icon">🦙</span>
-          <span class="ds-name">Ollama</span>
-          <span class="ds-status mono" id="dsStatusOllama">Live</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Granular Time Window Selector Bar -->
-    <section class="timewindow-bar" id="timewindowBar">
-      <div class="timewindow-left">
-        <div class="timewindow-label">
-          <span>⏱</span>
-          <span>Window:</span>
-        </div>
-        <div class="timewindow-pills" id="timewindowPills">
-          <button class="timewindow-pill" data-window="10m" onclick="setTimeWindow('10m')">10m</button>
-          <button class="timewindow-pill" data-window="1h" onclick="setTimeWindow('1h')">1h</button>
-          <button class="timewindow-pill" data-window="6h" onclick="setTimeWindow('6h')">6h</button>
-          <button class="timewindow-pill" data-window="1d" onclick="setTimeWindow('1d')">1d</button>
-          <button class="timewindow-pill" data-window="3d" onclick="setTimeWindow('3d')">3d</button>
-          <button class="timewindow-pill" data-window="7d" onclick="setTimeWindow('7d')">1w</button>
-          <button class="timewindow-pill" data-window="30d" onclick="setTimeWindow('30d')">1m</button>
-          <button class="timewindow-pill active" data-window="all" onclick="setTimeWindow('all')">All Time</button>
-        </div>
-      </div>
-      <div class="timewindow-right">
-        <div class="custom-timerange-group">
-          <span>From</span>
-          <input type="datetime-local" id="filterFromDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
-          <span>To</span>
-          <input type="datetime-local" id="filterToDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
-          <button class="btn-ghost-sm" onclick="clearCustomDateTime()" title="Reset custom dates">✕</button>
-        </div>
-        <button class="btn-export-neon" onclick="exportFilteredData()" title="Scrape & download filtered dataset with complete turn telemetry">
-          <span>📥</span>
-          <span>Scrape / Export JSON</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Dashboard Controls Bar (Dispatch-style Views & Layout) -->
-    <div class="dashboard-controls-bar">
-      <div class="dashboard-controls-left">
-        <h2 class="dashboard-section-title">
-          <span style="color:var(--neon-acid);">⚡</span>
+      <!-- Main Navigation Menu -->
+      <nav class="sidebar-nav">
+        <div class="nav-section-title mono">NAVIGATION</div>
+        <button class="nav-item active" id="navItemDashboard" onclick="switchNavTab('dashboard')">
+          <span class="nav-icon">⚡</span>
           <span>Observatory</span>
-        </h2>
-        <span class="badge badge-provider mono" id="activeWidgetsBadge">-- Panels</span>
+        </button>
+        <button class="nav-item" id="navItemSessions" onclick="switchNavTab('sessions')">
+          <span class="nav-icon">💬</span>
+          <span>Sessions Explorer</span>
+        </button>
+        <button class="nav-item" id="navItemSettings" onclick="openSettingsModal()">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings & Theme</span>
+        </button>
+      </nav>
+
+      <!-- Data Source Selector in Sidebar -->
+      <div class="sidebar-sources">
+        <div class="nav-section-title mono">DATA SOURCES</div>
+        <div class="sidebar-source-list" id="sidebarSourceList">
+          <button class="sidebar-source-item active" data-harness="" onclick="selectDataSource('')" title="Unified view across all harnesses">
+            <span class="source-icon">🌐</span>
+            <span class="source-name">All Sources</span>
+            <span class="source-pill mono" id="sideCountAll">--</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
+            <span class="source-icon">⚡</span>
+            <span class="source-name">OpenCode</span>
+            <span class="source-pill mono" id="sideCountOpenCode">--</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw gateway sessions">
+            <span class="source-icon">🐾</span>
+            <span class="source-name">OpenClaw</span>
+            <span class="source-pill mono" id="sideCountOpenClaw">--</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
+            <span class="source-icon">🤖</span>
+            <span class="source-name">Aider</span>
+            <span class="source-pill mono" id="sideCountAider">--</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE sessions">
+            <span class="source-icon">🚀</span>
+            <span class="source-name">Continue</span>
+            <span class="source-pill mono" id="sideCountContinue">--</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="mlx" onclick="selectDataSource('mlx')" title="Live Apple Silicon MLX LM Server (:8080)">
+            <span class="source-icon">🟢</span>
+            <span class="source-name">MLX LM</span>
+            <span class="status-chip mono online" id="sideStatusMlx">Live</span>
+          </button>
+          <button class="sidebar-source-item" data-harness="ollama" onclick="selectDataSource('ollama')" title="Local Ollama Daemon (:11434)">
+            <span class="source-icon">🦙</span>
+            <span class="source-name">Ollama</span>
+            <span class="status-chip mono offline" id="sideStatusOllama">Offline</span>
+          </button>
+        </div>
       </div>
 
-      <div class="dashboard-controls-right">
-        <!-- Saved Views / Dashboards Manager -->
-        <div class="views-manager-group" title="Dispatch-style customizable saved views">
-          <span class="views-label mono">View:</span>
-          <select id="dashboardViewSelect" class="custom-select view-select" onchange="switchDashboardView(this.value)">
-            <option value="default">⚡ Default Overview</option>
-            <option value="mtp_speculative">🚀 Speculative MTP & Latency</option>
-            <option value="token_economics">📊 Token Economics & Tools</option>
-            <option value="realtime_monitor">⏱ Real-Time Monitor</option>
-          </select>
-          <button class="btn-ghost" onclick="saveCurrentView()" title="Save current layout & filters to this view">
-            <span>💾</span>
-            <span>Save</span>
+      <!-- Sidebar Footer Status & Theme -->
+      <div class="sidebar-footer">
+        <div class="backend-pills-row" id="sidebarBackendStatus">
+          <div class="backend-dot-status online" id="dotMlx" title="MLX Server (:8080) Online">
+            <span class="dot"></span>
+            <span class="mono">MLX:8080</span>
+          </div>
+          <div class="backend-dot-status offline" id="dotOllama" title="Ollama (:11434) Offline">
+            <span class="dot red"></span>
+            <span class="mono">OLLAMA</span>
+          </div>
+        </div>
+        <button class="btn-theme-quick" onclick="openSettingsModal()" title="Customize appearance & subtle theme">
+          <span>🎨</span>
+          <span id="currentThemeName">Theme: Subtle Slate</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="app-main">
+
+      <!-- Constant Top Navigation Bar -->
+      <header class="app-topbar">
+        <!-- Top Bar Left: Active View Selector & Presets -->
+        <div class="topbar-left">
+          <div class="views-manager-group" title="Dispatch-style customizable saved views">
+            <span class="views-label mono">VIEW:</span>
+            <select id="dashboardViewSelect" class="custom-select view-select" onchange="switchDashboardView(this.value)">
+              <option value="default">⚡ Default Overview</option>
+              <option value="mtp_speculative">🚀 Speculative MTP & Latency</option>
+              <option value="token_economics">📊 Token Economics & Tools</option>
+              <option value="realtime_monitor">⏱ Real-Time Monitor</option>
+            </select>
+            <button class="btn-topbar-action" onclick="saveCurrentView()" title="Save layout and filter settings to current view">
+              <span>💾</span>
+              <span>Save</span>
+            </button>
+            <button class="btn-topbar-action" onclick="createNewViewPrompt()" title="Create a new custom dashboard view">
+              <span>+</span>
+              <span>New</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Top Bar Middle: Granular Time Window Selector -->
+        <div class="topbar-middle">
+          <div class="timewindow-pills" id="timewindowPills">
+            <button class="timewindow-pill" data-window="10m" onclick="setTimeWindow('10m')">10m</button>
+            <button class="timewindow-pill" data-window="1h" onclick="setTimeWindow('1h')">1h</button>
+            <button class="timewindow-pill" data-window="6h" onclick="setTimeWindow('6h')">6h</button>
+            <button class="timewindow-pill" data-window="1d" onclick="setTimeWindow('1d')">1d</button>
+            <button class="timewindow-pill" data-window="3d" onclick="setTimeWindow('3d')">3d</button>
+            <button class="timewindow-pill" data-window="7d" onclick="setTimeWindow('7d')">1w</button>
+            <button class="timewindow-pill" data-window="30d" onclick="setTimeWindow('30d')">1m</button>
+            <button class="timewindow-pill active" data-window="all" onclick="setTimeWindow('all')">All Time</button>
+          </div>
+          <div class="topbar-datetime-group">
+            <input type="datetime-local" id="filterFromDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
+            <span>to</span>
+            <input type="datetime-local" id="filterToDT" class="custom-select dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
+            <button class="btn-ghost-sm" onclick="clearCustomDateTime()" title="Reset custom dates">✕</button>
+          </div>
+        </div>
+
+        <!-- Top Bar Right: Customize Layout, Add Panel, Export, Settings -->
+        <div class="topbar-right">
+          <button class="btn-customize-layout" id="btnCustomizeLayout" onclick="toggleEditLayout()" title="Toggle edit mode to move and resize panels">
+            <span id="customizeIcon">✏️</span>
+            <span id="customizeText">Edit Layout</span>
           </button>
-          <button class="btn-ghost" onclick="createNewViewPrompt()" title="Create and name a new custom dashboard view">
+          <button class="btn-topbar-action" onclick="openPanelGallery()" title="Add telemetry panels to dashboard">
             <span>+</span>
-            <span>New View</span>
+            <span>Add Panel</span>
           </button>
-        </div>
-
-        <button class="btn-ghost" onclick="resetDashboardLayout()" title="Restore default panel layout">
-          <span>↺</span>
-          <span>Reset Layout</span>
-        </button>
-        <button class="btn-primary-neon" onclick="openPanelGallery()">
-          <span>+</span>
-          <span>Add Panel</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Dynamic 12-Column Dashboard Grid -->
-    <section class="dashboard-grid" id="dashboardGrid">
-      <!-- Populated dynamically from panel registry and saved layout -->
-    </section>
-
-    <!-- Interactive Filtering Toolbar -->
-    <section class="toolbar">
-      <div class="toolbar-row">
-        <!-- Search Input -->
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <input 
-            type="text" 
-            id="searchInput" 
-            class="search-input" 
-            placeholder="Search sessions, prompts, or topics..."
-          >
-        </div>
-
-        <!-- Filter Selects -->
-        <div class="filter-selects">
-          <select id="filterHarness" class="custom-select">
-            <option value="">All Harnesses</option>
-            <option value="opencode">OpenCode</option>
-            <option value="openclaw">OpenClaw</option>
-            <option value="aider">Aider</option>
-          </select>
-
-          <select id="filterFolder" class="custom-select">
-            <option value="">All Project Folders</option>
-          </select>
-
-          <select id="filterModel" class="custom-select">
-            <option value="">All Models</option>
-          </select>
-
-          <select id="filterSpeedTier" class="custom-select">
-            <option value="">All Speed Tiers</option>
-            <option value="<15">&lt; 15 tok/s (Heavy Turn)</option>
-            <option value="15-30">15 – 30 tok/s (Autoregressive)</option>
-            <option value="30-45">30 – 45 tok/s (Accelerated)</option>
-            <option value="45-60">45 – 60 tok/s (High Speed)</option>
-            <option value="60+">60+ tok/s (MTP Speculative Burst)</option>
-          </select>
-
-          <select id="filterSort" class="custom-select">
-            <option value="date_desc">Sort: Newest First</option>
-            <option value="date_asc">Sort: Oldest First</option>
-            <option value="tps_desc">Sort: Highest TPS</option>
-            <option value="tokens_desc">Sort: Most Tokens</option>
-            <option value="duration_desc">Sort: Longest Duration</option>
-          </select>
-
-          <button class="btn-ghost" onclick="exportFilteredData()" title="Download filtered dataset as JSON">
+          <button class="btn-topbar-action" onclick="exportFilteredData()" title="Scrape & download filtered dataset as JSON">
             <span>📥</span>
             <span>Export JSON</span>
           </button>
+          <button class="btn-topbar-icon" onclick="openSettingsModal()" title="Settings & Appearance">
+            <span>⚙️</span>
+          </button>
         </div>
+      </header>
+
+      <!-- Main Scrollable Content Container (Full Width) -->
+      <main class="app-viewport">
+        
+        <!-- Tab 1: Observatory Dashboard View -->
+        <section id="viewDashboard" class="view-tab active">
+          <!-- Edit Layout Info Banner (shown only when Customize mode is ON) -->
+          <div class="edit-layout-banner" id="editLayoutBanner" style="display:none;">
+            <div class="banner-text">
+              <span>✏️</span>
+              <span><strong>Layout Edit Mode Active:</strong> Drag panels by their header to reorder (live drop preview). Drag the bottom-right corner (⤡) to fluidly resize columns & height.</span>
+            </div>
+            <div class="banner-actions">
+              <button class="btn-ghost-sm" onclick="resetDashboardLayout()">↺ Reset Layout</button>
+              <button class="btn-done-editing" onclick="toggleEditLayout()">✓ Done Editing</button>
+            </div>
+          </div>
+
+          <!-- Dynamic 12-Column Dashboard Grid -->
+          <div class="dashboard-grid" id="dashboardGrid">
+            <!-- Dynamically populated from state.layout and PANEL_REGISTRY -->
+          </div>
+        </section>
+
+        <!-- Tab 2: Full Sessions & Turns Explorer View -->
+        <section id="viewSessions" class="view-tab">
+          <div class="sessions-full-view" id="sessionsFullViewContainer">
+            <!-- Populated dynamically -->
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Settings & Theme Customization Modal -->
+  <div class="modal-backdrop" id="settingsModal" onclick="if(event.target===this) closeSettingsModal()">
+    <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Observatory Settings & Themes">
+      <div class="settings-header">
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+          <span style="font-size:1.3rem;">⚙️</span>
+          <div>
+            <div style="font-size:1.05rem;font-weight:700;color:var(--text-main);">Settings & Theme Control</div>
+            <div style="font-size:0.75rem;color:var(--text-sub);">Personalize color palette, contrast, and layout</div>
+          </div>
+        </div>
+        <button class="panel-close-btn" onclick="closeSettingsModal()" title="Close (Esc)">✕</button>
       </div>
 
-      <!-- Date Presets & Custom Range -->
-      <div class="toolbar-row">
-        <div class="chips-row">
-          <button class="chip-btn active" data-chip="all" onclick="setDateChip('all')">All Time</button>
-          <button class="chip-btn" data-chip="today" onclick="setDateChip('today')">Today</button>
-          <button class="chip-btn" data-chip="7d" onclick="setDateChip('7d')">Past 7 Days</button>
-          <button class="chip-btn" data-chip="30d" onclick="setDateChip('30d')">Past 30 Days</button>
+      <div class="settings-body">
+        
+        <!-- Theme Palette Picker -->
+        <div class="settings-section">
+          <div class="settings-section-label mono">THEME PALETTE</div>
+          <div class="theme-options-grid">
+            <button class="theme-card active" data-theme="subtle" onclick="applyTheme('subtle')">
+              <div class="theme-card-preview theme-preview-subtle">
+                <span class="preview-dot" style="background:#6366F1;"></span>
+                <span class="preview-dot" style="background:#0EA5E9;"></span>
+                <span class="preview-dot" style="background:#10B981;"></span>
+              </div>
+              <div class="theme-card-title">Subtle Slate & Indigo (Default)</div>
+              <div class="theme-card-desc">Refined, low-saturation, professional dark UI with soft indigo accents.</div>
+            </button>
+
+            <button class="theme-card" data-theme="neon" onclick="applyTheme('neon')">
+              <div class="theme-card-preview theme-preview-neon">
+                <span class="preview-dot" style="background:#BE48E0;"></span>
+                <span class="preview-dot" style="background:#00F0FF;"></span>
+                <span class="preview-dot" style="background:#39FF14;"></span>
+              </div>
+              <div class="theme-card-title">Cyber Neon (Original Glow)</div>
+              <div class="theme-card-desc">Vibrant electric cyber aesthetic with neon pink, violet, acid green glows.</div>
+            </button>
+
+            <button class="theme-card" data-theme="light" onclick="applyTheme('light')">
+              <div class="theme-card-preview theme-preview-light">
+                <span class="preview-dot" style="background:#4F46E5;"></span>
+                <span class="preview-dot" style="background:#0284C7;"></span>
+                <span class="preview-dot" style="background:#059669;"></span>
+              </div>
+              <div class="theme-card-title">Light Studio</div>
+              <div class="theme-card-desc">Crisp, clean high-contrast white & slate studio theme.</div>
+            </button>
+
+            <button class="theme-card" data-theme="solar" onclick="applyTheme('solar')">
+              <div class="theme-card-preview theme-preview-solar">
+                <span class="preview-dot" style="background:#E2B714;"></span>
+                <span class="preview-dot" style="background:#38BDF8;"></span>
+                <span class="preview-dot" style="background:#22C55E;"></span>
+              </div>
+              <div class="theme-card-title">Solar Monochrome</div>
+              <div class="theme-card-desc">Minimalist OLED black with amber gold metrics and high-contrast typography.</div>
+            </button>
+          </div>
         </div>
 
-        <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;color:var(--text-sub);">
-          <span>From</span>
-          <input type="date" id="filterFrom" class="custom-select" style="padding:0.35rem 0.6rem;">
-          <span>To</span>
-          <input type="date" id="filterTo" class="custom-select" style="padding:0.35rem 0.6rem;">
+        <!-- Mode Picker (Dark / Light / System) -->
+        <div class="settings-section">
+          <div class="settings-section-label mono">APPEARANCE MODE</div>
+          <div class="mode-button-group">
+            <button class="mode-btn active" id="btnModeDark" onclick="applyMode('dark')">🌙 Dark Mode</button>
+            <button class="mode-btn" id="btnModeLight" onclick="applyMode('light')">☀️ Light Mode</button>
+            <button class="mode-btn" id="btnModeSystem" onclick="applyMode('system')">💻 Match System</button>
+          </div>
         </div>
-      </div>
-    </section>
 
-    <!-- Sessions Feed -->
-    <main>
-      <div id="sessionsList" class="sessions-container">
-        <!-- Populated dynamically -->
-      </div>
-    </main>
+        <!-- System & Local Harness Information -->
+        <div class="settings-section">
+          <div class="settings-section-label mono">TELEMETRY SOURCES & PATHS</div>
+          <div class="system-info-list" id="settingsSystemInfo">
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">OpenCode DB</span>
+              <span class="sys-val mono" id="sysOpenCodeDb">~/.local/share/opencode/opencode.db</span>
+            </div>
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">OpenClaw DB</span>
+              <span class="sys-val mono" id="sysOpenClawDb">~/.openclaw/state/openclaw.sqlite</span>
+            </div>
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">MLX LM Server</span>
+              <span class="sys-val mono">http://127.0.0.1:8080</span>
+            </div>
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">Ollama Server</span>
+              <span class="sys-val mono">http://127.0.0.1:11434</span>
+            </div>
+          </div>
+        </div>
 
+      </div>
+
+      <div class="settings-footer">
+        <button class="btn-primary-neon" onclick="closeSettingsModal()">Done</button>
+      </div>
+    </div>
   </div>
 
   <!-- Slide-Over Session Detail Drawer -->
@@ -243,7 +309,7 @@
     <aside class="drawer" id="drawer">
       <div class="drawer-header">
         <div style="min-width:0;">
-          <h2 id="drawerTitle" style="font-size:1.15rem;font-weight:700;color:#FFF;margin-bottom:0.4rem;line-height:1.3;">Session Detail</h2>
+          <h2 id="drawerTitle" style="font-size:1.15rem;font-weight:700;color:var(--text-main);margin-bottom:0.4rem;line-height:1.3;">Session Detail</h2>
           <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap;font-size:0.75rem;color:var(--text-sub);">
             <span class="badge badge-folder mono" id="drawerFolder">folder</span>
             <span class="badge badge-provider mono" id="drawerModel">model</span>
@@ -251,9 +317,9 @@
             <span>•</span>
             <span id="drawerDuration">duration</span>
             <span>•</span>
-            <span>Avg Speed: <strong id="drawerAvgTps" style="color:var(--neon-acid);">--</strong></span>
+            <span>Avg Speed: <strong id="drawerAvgTps" style="color:var(--accent-success);">--</strong></span>
             <span>•</span>
-            <span>Total: <strong id="drawerTotalTokens" style="color:var(--neon-cyan);">--</strong> tokens</span>
+            <span>Total: <strong id="drawerTotalTokens" style="color:var(--accent-secondary);">--</strong> tokens</span>
           </div>
         </div>
         <button class="drawer-close" onclick="closeSessionDetail()" title="Close details">✕</button>
@@ -276,12 +342,12 @@
       
       <div class="gallery-header">
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          <span style="color:var(--neon-violet);font-size:1.3rem;">❖</span>
+          <span style="color:var(--accent-primary);font-size:1.3rem;">❖</span>
           <div>
-            <div style="font-size:1.05rem;font-weight:800;color:#FFF;">Panel Gallery</div>
+            <div style="font-size:1.05rem;font-weight:800;color:var(--text-main);">Panel Gallery</div>
             <div style="font-size:0.74rem;color:var(--text-sub);">Select telemetry widgets to add to your observatory dashboard</div>
           </div>
-          <span class="badge badge-folder mono" id="galleryTotalCount">15 Available</span>
+          <span class="badge badge-folder mono" id="galleryTotalCount">16 Available</span>
         </div>
         <button class="panel-close-btn" onclick="closePanelGallery()" title="Close gallery (Esc)">✕</button>
       </div>
@@ -294,11 +360,11 @@
         <div class="gallery-tabs" id="galleryTabs">
           <button class="gallery-tab active" data-cat="all" onclick="setGalleryTab('all')">
             <span>All</span>
-            <span class="gallery-tab-count" id="countCatAll">9</span>
+            <span class="gallery-tab-count" id="countCatAll">10</span>
           </button>
           <button class="gallery-tab" data-cat="perf" onclick="setGalleryTab('perf')">
             <span>Performance</span>
-            <span class="gallery-tab-count" id="countCatPerf">3</span>
+            <span class="gallery-tab-count" id="countCatPerf">4</span>
           </button>
           <button class="gallery-tab" data-cat="analytics" onclick="setGalleryTab('analytics')">
             <span>Analytics</span>

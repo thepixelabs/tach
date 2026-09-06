@@ -24,6 +24,10 @@ const state = {
   },
   activeSession: null,
   activeViewId: 'default',
+  isEditingLayout: false,
+  theme: 'subtle',
+  mode: 'dark',
+  activeTab: 'dashboard',
   gallery: {
     activeTab: 'all',
     query: '',
@@ -47,6 +51,7 @@ const DEFAULT_LAYOUT = [
   { id: 'decode-acceleration', col: 6 },
   { id: 'token-volume', col: 6 },
   { id: 'live-pulse', col: 6 },
+  { id: 'sessions-explorer', col: 12 },
 ];
 
 // Preset Saved Views (Dispatch Framework)
@@ -254,6 +259,15 @@ const PANEL_REGISTRY = {
     description: 'Token output volume and session counts ranked by project repository and folder.',
     defaultCol: 6,
     render: renderTopWorkspacesPanel,
+  },
+  'sessions-explorer': {
+    id: 'sessions-explorer',
+    title: 'Sessions & Prompts Explorer',
+    category: 'analytics',
+    icon: '💬',
+    description: 'Filterable session history, topic search, speed tier filter, and turn-level inspection drawer.',
+    defaultCol: 12,
+    render: renderSessionsExplorerWidget,
   },
 };
 
@@ -498,15 +512,56 @@ function onPanelResizeEnd() {
   window.dispatchEvent(new Event('resize'));
 }
 
-// Drag to Reorder Implementation (Dispatch Pattern)
+// Edit Layout Mode Toggle
+function toggleEditLayout() {
+  state.isEditingLayout = !state.isEditingLayout;
+  const shell = document.querySelector('.app-shell');
+  if (shell) shell.classList.toggle('is-editing', state.isEditingLayout);
+
+  const btn = document.getElementById('btnCustomizeLayout');
+  const icon = document.getElementById('customizeIcon');
+  const txt = document.getElementById('customizeText');
+  const banner = document.getElementById('editLayoutBanner');
+
+  if (state.isEditingLayout) {
+    if (btn) btn.classList.add('editing');
+    if (icon) icon.textContent = '✓';
+    if (txt) txt.textContent = 'Done Editing';
+    if (banner) banner.style.display = 'flex';
+  } else {
+    if (btn) btn.classList.remove('editing');
+    if (icon) icon.textContent = '✏️';
+    if (txt) txt.textContent = 'Edit Layout';
+    if (banner) banner.style.display = 'none';
+  }
+}
+
+// Drag to Reorder with Live Placement Ghost Preview
 let draggedPanelId = null;
+let dragPlaceholder = null;
 
 function onPanelDragStart(e, panelId) {
+  if (!state.isEditingLayout) {
+    e.preventDefault();
+    return;
+  }
   draggedPanelId = panelId;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', panelId);
+
   const panelEl = document.getElementById('panel-' + panelId);
-  if (panelEl) panelEl.classList.add('is-dragging');
+  if (panelEl) {
+    panelEl.classList.add('is-dragging');
+  }
+
+  // Create ghost preview placeholder matching column span
+  const item = state.layout.find(p => p.id === panelId);
+  const colSpan = item ? (item.col || 6) : 6;
+  if (!dragPlaceholder) {
+    dragPlaceholder = document.createElement('div');
+  }
+  dragPlaceholder.className = `drag-placeholder col-span-${colSpan}`;
+  dragPlaceholder.style.minHeight = (panelEl ? panelEl.offsetHeight : 220) + 'px';
 }
 
 function initDragReorder() {
@@ -515,41 +570,58 @@ function initDragReorder() {
   grid._dragInitialized = true;
 
   grid.addEventListener('dragover', e => {
+    if (!state.isEditingLayout || !draggedPanelId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
     const targetPanel = e.target.closest('.dashboard-panel');
-    document.querySelectorAll('.dashboard-panel').forEach(p => p.classList.remove('drag-over'));
     if (targetPanel && targetPanel.id !== 'panel-' + draggedPanelId) {
-      targetPanel.classList.add('drag-over');
+      const rect = targetPanel.getBoundingClientRect();
+      const isAfter = (e.clientY > rect.top + rect.height / 2);
+      if (isAfter) {
+        targetPanel.after(dragPlaceholder);
+      } else {
+        targetPanel.before(dragPlaceholder);
+      }
     }
   });
 
   grid.addEventListener('drop', e => {
+    if (!state.isEditingLayout || !draggedPanelId) return;
     e.preventDefault();
+
+    const draggedEl = document.getElementById('panel-' + draggedPanelId);
+    if (draggedEl && dragPlaceholder && dragPlaceholder.parentNode) {
+      dragPlaceholder.parentNode.insertBefore(draggedEl, dragPlaceholder);
+    }
+    if (dragPlaceholder && dragPlaceholder.parentNode) {
+      dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+    }
+
+    // Read new layout order directly from DOM
+    const currentPanelEls = Array.from(grid.querySelectorAll('.dashboard-panel'));
+    const newLayout = [];
+    currentPanelEls.forEach(el => {
+      const id = el.id.replace('panel-', '');
+      const existing = state.layout.find(p => p.id === id);
+      if (existing) newLayout.push(existing);
+    });
+
+    state.layout = newLayout;
+    saveDashboardLayout();
+
     document.querySelectorAll('.dashboard-panel').forEach(p => {
       p.classList.remove('is-dragging');
       p.classList.remove('drag-over');
     });
-
-    const targetPanel = e.target.closest('.dashboard-panel');
-    if (!targetPanel || !draggedPanelId) return;
-
-    const targetId = targetPanel.id.replace('panel-', '');
-    if (targetId === draggedPanelId) return;
-
-    const fromIdx = state.layout.findIndex(p => p.id === draggedPanelId);
-    const toIdx = state.layout.findIndex(p => p.id === targetId);
-
-    if (fromIdx >= 0 && toIdx >= 0) {
-      const [moved] = state.layout.splice(fromIdx, 1);
-      state.layout.splice(toIdx, 0, moved);
-      saveDashboardLayout();
-      renderDashboard();
-    }
     draggedPanelId = null;
+    showToast('Dashboard order updated');
   });
 
   grid.addEventListener('dragend', () => {
+    if (dragPlaceholder && dragPlaceholder.parentNode) {
+      dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+    }
     document.querySelectorAll('.dashboard-panel').forEach(p => {
       p.classList.remove('is-dragging');
       p.classList.remove('drag-over');
@@ -1527,7 +1599,14 @@ async function fetchLiveStatus() {
 
 async function fetchTimeseries() {
   try {
-    const res = await fetch('/api/timeseries');
+    const params = new URLSearchParams();
+    if (state.activeFilter.window) params.set('window', state.activeFilter.window);
+    if (state.activeFilter.from) params.set('from', state.activeFilter.from);
+    if (state.activeFilter.to) params.set('to', state.activeFilter.to);
+    if (state.activeFilter.harness) params.set('harness', state.activeFilter.harness);
+
+    const qStr = params.toString() ? '?' + params.toString() : '';
+    const res = await fetch('/api/timeseries' + qStr);
     state.timeseries = await res.json();
     const tpsWrap = document.getElementById('panel-body-tps-trend');
     if (tpsWrap) renderTpsTrendPanel(tpsWrap, state);
@@ -1592,6 +1671,7 @@ function setTimeWindow(win, triggerFetch = true) {
 
   if (triggerFetch) {
     fetchStats();
+    fetchTimeseries();
     fetchSessions();
   }
 }
@@ -1605,6 +1685,7 @@ function onCustomDateTimeChange() {
     state.activeFilter.to = toVal || '';
     document.querySelectorAll('.timewindow-pill').forEach(pill => pill.classList.remove('active'));
     fetchStats();
+    fetchTimeseries();
     fetchSessions();
   }
 }
@@ -1619,50 +1700,69 @@ function clearCustomDateTime() {
 
 function selectDataSource(harness, triggerFetch = true) {
   state.activeFilter.harness = harness;
+  document.querySelectorAll('.sidebar-source-item').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-harness') === harness);
+  });
   document.querySelectorAll('.datasource-pill').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-harness') === harness);
   });
 
-  const harnessSelect = document.getElementById('filterHarness');
-  if (harnessSelect) harnessSelect.value = harness;
+  document.querySelectorAll('.explorer-filter-harness').forEach(sel => {
+    sel.value = harness;
+  });
 
   if (triggerFetch) {
     fetchStats();
+    fetchTimeseries();
     fetchSessions();
   }
 }
 
 function updateDataSourcePillCounts() {
   if (!state.stats) return;
-  const countAll = document.getElementById('dsCountAll');
+  const countAll = document.getElementById('sideCountAll') || document.getElementById('dsCountAll');
   if (countAll) countAll.textContent = state.stats.total_sessions || 0;
 
-  const countOpenCode = document.getElementById('dsCountOpenCode');
+  const countOpenCode = document.getElementById('sideCountOpenCode') || document.getElementById('dsCountOpenCode');
   if (countOpenCode) countOpenCode.textContent = state.stats.total_sessions || 0;
 
   (state.stats.harnesses || []).forEach(h => {
     if (h.id === 'openclaw') {
-      const el = document.getElementById('dsCountOpenClaw');
+      const el = document.getElementById('sideCountOpenClaw') || document.getElementById('dsCountOpenClaw');
       if (el) el.textContent = h.count || 0;
     }
     if (h.id === 'aider') {
-      const el = document.getElementById('dsCountAider');
+      const el = document.getElementById('sideCountAider') || document.getElementById('dsCountAider');
       if (el) el.textContent = h.count || 0;
     }
     if (h.id === 'continue') {
-      const el = document.getElementById('dsCountContinue');
+      const el = document.getElementById('sideCountContinue') || document.getElementById('dsCountContinue');
       if (el) el.textContent = h.count || 0;
     }
   });
 
   if (state.live) {
-    const mlxEl = document.getElementById('dsStatusMlx');
+    const isMlxOnline = !!state.live.mlx?.online;
+    const mlxEl = document.getElementById('sideStatusMlx') || document.getElementById('dsStatusMlx');
     if (mlxEl) {
-      mlxEl.textContent = state.live.mlx?.online ? 'Online' : 'Offline';
+      mlxEl.textContent = isMlxOnline ? 'Live' : 'Offline';
+      mlxEl.className = isMlxOnline ? 'status-chip mono online' : 'status-chip mono offline';
     }
-    const ollamaEl = document.getElementById('dsStatusOllama');
+
+    const isOllamaOnline = !!state.live.ollama?.online;
+    const ollamaEl = document.getElementById('sideStatusOllama') || document.getElementById('dsStatusOllama');
     if (ollamaEl) {
-      ollamaEl.textContent = state.live.ollama?.online ? 'Online' : 'Offline';
+      ollamaEl.textContent = isOllamaOnline ? 'Live' : 'Offline';
+      ollamaEl.className = isOllamaOnline ? 'status-chip mono online' : 'status-chip mono offline';
+    }
+
+    const dotMlx = document.getElementById('dotMlx');
+    if (dotMlx) {
+      dotMlx.className = isMlxOnline ? 'backend-dot-status online' : 'backend-dot-status offline';
+    }
+    const dotOllama = document.getElementById('dotOllama');
+    if (dotOllama) {
+      dotOllama.className = isOllamaOnline ? 'backend-dot-status online' : 'backend-dot-status offline';
     }
   }
 }
@@ -1746,85 +1846,104 @@ function renderLiveStatusBar() {
 function renderFilterDropdowns() {
   if (!state.stats) return;
 
-  const harnessSelect = document.getElementById('filterHarness');
-  if (harnessSelect && state.stats.harnesses && harnessSelect.options.length <= 4) {
-    harnessSelect.innerHTML = state.stats.harnesses.map(h => {
-      const label = h.id === 'all' ? 'All Harnesses (' + (h.count || 0) + ')' : (h.detected ? h.name + ' (' + (h.count || 0) + ')' : h.name + ' (Inactive)');
-      return '<option value="' + (h.id === 'all' ? '' : h.id) + '">' + escapeHtml(label) + '</option>';
-    }).join('');
-  }
+  document.querySelectorAll('.explorer-filter-harness').forEach(harnessSelect => {
+    const currentVal = state.activeFilter.harness || harnessSelect.value || '';
+    if (state.stats.harnesses) {
+      let opts = '<option value="">All Harnesses (' + (state.stats.total_sessions || 0) + ')</option>';
+      state.stats.harnesses.forEach(h => {
+        if (h.id === 'all') return;
+        const label = h.detected ? `${h.name} (${h.count || 0})` : `${h.name} (Inactive)`;
+        opts += `<option value="${escapeHtml(h.id)}">${escapeHtml(label)}</option>`;
+      });
+      harnessSelect.innerHTML = opts;
+      harnessSelect.value = currentVal;
+    }
+  });
 
-  const folderSelect = document.getElementById('filterFolder');
-  if (folderSelect && folderSelect.options.length <= 1) {
+  document.querySelectorAll('.explorer-filter-folder').forEach(folderSelect => {
+    const currentVal = state.activeFilter.folder || folderSelect.value || '';
+    let opts = '<option value="">All Folders</option>';
     (state.stats.directories || []).forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.folder;
-      opt.textContent = d.folder + ' (' + d.count + ')';
-      folderSelect.appendChild(opt);
+      opts += `<option value="${escapeHtml(d.folder)}">${escapeHtml(d.folder)} (${d.count})</option>`;
     });
-  }
+    folderSelect.innerHTML = opts;
+    folderSelect.value = currentVal;
+  });
 
-  const modelSelect = document.getElementById('filterModel');
-  if (modelSelect && modelSelect.options.length <= 1) {
+  document.querySelectorAll('.explorer-filter-model').forEach(modelSelect => {
+    const currentVal = state.activeFilter.model || modelSelect.value || '';
+    let opts = '<option value="">All Models</option>';
     Object.entries(state.stats.models || {}).forEach(([fullId, count]) => {
       const parts = fullId.split('/');
-      const opt = document.createElement('option');
-      opt.value = parts.slice(1).join('/');
-      opt.textContent = fullId + ' (' + count + ')';
-      modelSelect.appendChild(opt);
+      const shortModel = parts.slice(1).join('/') || fullId;
+      opts += `<option value="${escapeHtml(shortModel)}">${escapeHtml(fullId)} (${count})</option>`;
     });
-  }
+    modelSelect.innerHTML = opts;
+    modelSelect.value = currentVal;
+  });
+
+  document.querySelectorAll('.explorer-filter-speed').forEach(speedSelect => {
+    speedSelect.value = state.activeFilter.speed_tier || '';
+  });
+
+  document.querySelectorAll('.explorer-filter-sort').forEach(sortSelect => {
+    sortSelect.value = state.activeFilter.sort || 'latest';
+  });
 }
 
 function renderSessionsList() {
-  const container = document.getElementById('sessionsList');
-  if (!container) return;
+  const containers = document.querySelectorAll('.sessions-list');
+  if (!containers.length) return;
 
-  if (!state.sessions.length) {
-    container.innerHTML = `
+  let innerContent = '';
+  if (!state.sessions || !state.sessions.length) {
+    innerContent = `
       <div class="empty-state">
-        <p style="font-size:1.1rem;margin-bottom:0.5rem;">No conversation sessions match your filter criteria.</p>
-        <span style="font-size:0.85rem;">Try clearing search or expanding the date range.</span>
+        <p style="font-size:1.05rem;margin-bottom:0.4rem;color:var(--text-main);">No conversation sessions match your filter criteria.</p>
+        <span style="font-size:0.8rem;color:var(--text-sub);">Try clearing search or expanding the time window.</span>
       </div>
     `;
-    return;
+  } else {
+    innerContent = state.sessions
+      .map(s => {
+        const providerClass = s.provider === 'mlx' ? 'badge-tps' : 'badge-provider';
+        const tpsDisplay = s.tps > 0 ? (s.tps + ' tok/s') : 'n/a';
+        return `
+          <div class="session-card" onclick="openSessionDetail('${s.id}')">
+            <div class="session-main">
+              <div class="session-title">${escapeHtml(s.title)}</div>
+              <div class="session-meta-row">
+                <span class="badge badge-folder mono">${escapeHtml(s.folder)}</span>
+                <span class="badge badge-provider mono">${escapeHtml(s.harness || 'opencode')}</span>
+                <span class="badge ${providerClass} mono">${escapeHtml(s.provider)} / ${escapeHtml(s.model.split('/').pop())}</span>
+                <span>📅 ${s.date_str}</span>
+                <span>⏱ ${formatSecs(s.duration_s)}</span>
+                <span>💬 ${s.message_count} turns</span>
+              </div>
+            </div>
+            <div class="session-stats">
+              <div class="stat-item">
+                <span class="stat-num mono" style="color:var(--accent-success);">${tpsDisplay}</span>
+                <span class="stat-lbl">Session TPS</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-num mono">${formatNum(s.tokens_output + s.tokens_reasoning)}</span>
+                <span class="stat-lbl">Gen Tokens</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-num mono" style="color:var(--accent-secondary);">${formatNum(s.tokens_input)}</span>
+                <span class="stat-lbl">Input Tokens</span>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
   }
 
-  container.innerHTML = state.sessions
-    .map(s => {
-      const providerClass = s.provider === 'mlx' ? 'badge-tps' : 'badge-provider';
-      const tpsDisplay = s.tps > 0 ? (s.tps + ' tok/s') : 'n/a';
-      return `
-        <div class="session-card" onclick="openSessionDetail('${s.id}')">
-          <div class="session-main">
-            <div class="session-title">${escapeHtml(s.title)}</div>
-            <div class="session-meta-row">
-              <span class="badge badge-folder mono">${escapeHtml(s.folder)}</span>
-              <span class="badge badge-provider mono">${escapeHtml(s.harness || 'opencode')}</span>
-              <span class="badge ${providerClass} mono">${escapeHtml(s.provider)} / ${escapeHtml(s.model.split('/').pop())}</span>
-              <span>📅 ${s.date_str}</span>
-              <span>⏱ ${formatSecs(s.duration_s)}</span>
-              <span>💬 ${s.message_count} turns</span>
-            </div>
-          </div>
-          <div class="session-stats">
-            <div class="stat-item">
-              <span class="stat-num mono" style="color:var(--neon-acid);">${tpsDisplay}</span>
-              <span class="stat-lbl">Session TPS</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-num mono">${formatNum(s.tokens_output + s.tokens_reasoning)}</span>
-              <span class="stat-lbl">Gen Tokens</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-num mono" style="color:var(--neon-cyan);">${formatNum(s.tokens_input)}</span>
-              <span class="stat-lbl">Input Tokens</span>
-            </div>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
+  containers.forEach(c => {
+    c.innerHTML = innerContent;
+  });
 }
 
 function renderSessionDrawer(detail) {
@@ -1895,6 +2014,7 @@ ${escapeHtml(outPreview)}</div>
             <span class="msg-role ${bubbleClass}">${roleLabel}</span>
             <div style="display:flex;align-items:center;gap:0.75rem;">
               ${tokensBadge}
+              ${tokensBadge ? '' : ''}
               ${tpsBadge}
               <span>${msg.date_str}</span>
             </div>
@@ -1908,98 +2028,233 @@ ${escapeHtml(outPreview)}</div>
     .join('');
 }
 
-function setDateChip(chip) {
-  state.activeFilter.chip = chip;
-  document.querySelectorAll('.chip-btn').forEach(el => {
-    el.classList.toggle('active', el.dataset.chip === chip);
-  });
+// 16. Moveable Sessions & Prompts Explorer Widget
+function renderSessionsExplorerWidget(container, appState, item) {
+  const panelH = item?.height || 520;
+  container.innerHTML = `
+    <div class="sessions-widget-wrap" style="display:flex;flex-direction:column;gap:0.85rem;height:100%;">
+      <div class="sessions-filter-bar">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+          <div class="search-box" style="flex:1;min-width:220px;">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input explorer-search-input" placeholder="Search sessions, topics, prompts..." value="${escapeHtml(state.activeFilter.q || '')}">
+          </div>
+          <div class="filter-selects">
+            <select class="custom-select explorer-filter-harness" title="Filter by Harness">
+              <option value="">All Harnesses</option>
+            </select>
+            <select class="custom-select explorer-filter-folder" title="Filter by Workspace Folder">
+              <option value="">All Folders</option>
+            </select>
+            <select class="custom-select explorer-filter-model" title="Filter by Model">
+              <option value="">All Models</option>
+            </select>
+            <select class="custom-select explorer-filter-speed" title="Filter by Speed Tier">
+              <option value="">All Speeds</option>
+              <option value="turbo">⚡ Turbo (45+ TPS)</option>
+              <option value="fast">🚀 Fast (25-45 TPS)</option>
+              <option value="standard">🏎 Standard (15-25 TPS)</option>
+              <option value="deep">🐢 Deep Reasoner (<15 TPS)</option>
+            </select>
+            <select class="custom-select explorer-filter-sort" title="Sort Order">
+              <option value="latest">Latest First</option>
+              <option value="duration">Longest First</option>
+              <option value="tokens">Most Tokens</option>
+              <option value="speed">Fastest TPS</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="sessions-container sessions-list" style="flex:1;overflow-y:auto;max-height:${Math.max(panelH - 120, 320)}px;padding-right:4px;">
+        <!-- Populated by renderSessionsList() -->
+      </div>
+    </div>
+  `;
 
-  const today = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  bindExplorerWidgetEvents(container);
+  renderFilterDropdowns();
+  renderSessionsList();
+}
 
-  if (chip === 'all') {
-    state.activeFilter.from = '';
-    state.activeFilter.to = '';
-  } else if (chip === 'today') {
-    state.activeFilter.from = fmt(today);
-    state.activeFilter.to = fmt(today);
-  } else if (chip === '7d') {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    state.activeFilter.from = fmt(d);
-    state.activeFilter.to = fmt(today);
-  } else if (chip === '30d') {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    state.activeFilter.from = fmt(d);
-    state.activeFilter.to = fmt(today);
+function bindExplorerWidgetEvents(container) {
+  let searchTimeout;
+  const searchInput = container.querySelector('.explorer-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', e => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        state.activeFilter.q = e.target.value;
+        document.querySelectorAll('.explorer-search-input').forEach(inp => {
+          if (inp !== e.target) inp.value = e.target.value;
+        });
+        fetchSessions();
+      }, 250);
+    });
   }
 
-  document.getElementById('filterFrom').value = state.activeFilter.from;
-  document.getElementById('filterTo').value = state.activeFilter.to;
-  fetchSessions();
+  const harnessSelect = container.querySelector('.explorer-filter-harness');
+  if (harnessSelect) {
+    harnessSelect.addEventListener('change', e => {
+      selectDataSource(e.target.value);
+    });
+  }
+
+  const folderSelect = container.querySelector('.explorer-filter-folder');
+  if (folderSelect) {
+    folderSelect.addEventListener('change', e => {
+      state.activeFilter.folder = e.target.value;
+      fetchSessions();
+    });
+  }
+
+  const modelSelect = container.querySelector('.explorer-filter-model');
+  if (modelSelect) {
+    modelSelect.addEventListener('change', e => {
+      state.activeFilter.model = e.target.value;
+      fetchSessions();
+    });
+  }
+
+  const speedSelect = container.querySelector('.explorer-filter-speed');
+  if (speedSelect) {
+    speedSelect.addEventListener('change', e => {
+      state.activeFilter.speed_tier = e.target.value;
+      fetchSessions();
+    });
+  }
+
+  const sortSelect = container.querySelector('.explorer-filter-sort');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', e => {
+      state.activeFilter.sort = e.target.value;
+      fetchSessions();
+    });
+  }
+}
+
+// ============================================================
+// NAVIGATION & TABS
+// ============================================================
+function switchNavTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(el => {
+    el.classList.toggle('active', el.id === (tab === 'dashboard' ? 'navItemDashboard' : 'navItemSessions'));
+  });
+
+  const viewDashboard = document.getElementById('viewDashboard');
+  const viewSessions = document.getElementById('viewSessions');
+
+  if (tab === 'dashboard') {
+    if (viewDashboard) viewDashboard.classList.add('active');
+    if (viewSessions) viewSessions.classList.remove('active');
+  } else if (tab === 'sessions') {
+    if (viewDashboard) viewDashboard.classList.remove('active');
+    if (viewSessions) viewSessions.classList.add('active');
+    const container = document.getElementById('sessionsFullViewContainer');
+    if (container && !container._rendered) {
+      container._rendered = true;
+      renderSessionsExplorerWidget(container, state, { col: 12, height: 800 });
+    }
+    fetchSessions();
+  }
+}
+
+// ============================================================
+// THEME & APPEARANCE SYSTEM (SUBTLE SLATE DEFAULT)
+// ============================================================
+const THEME_NAMES = {
+  subtle: 'Subtle Slate & Indigo',
+  neon: 'Cyber Neon',
+  light: 'Light Studio',
+  solar: 'Solar Monochrome'
+};
+
+function applyTheme(themeName) {
+  state.theme = themeName;
+  document.documentElement.setAttribute('data-theme', themeName);
+  try {
+    localStorage.setItem('token_telemetry_theme', themeName);
+  } catch (e) {}
+
+  document.querySelectorAll('.theme-card').forEach(card => {
+    card.classList.toggle('active', card.getAttribute('data-theme') === themeName);
+  });
+
+  const themeLabel = document.getElementById('currentThemeName');
+  if (themeLabel) {
+    themeLabel.textContent = 'Theme: ' + (THEME_NAMES[themeName] || themeName);
+  }
+
+  // Redraw dashboard canvas charts with new theme colors
+  const tpsWrap = document.getElementById('panel-body-tps-trend');
+  if (tpsWrap) renderTpsTrendPanel(tpsWrap, state);
+  const volWrap = document.getElementById('panel-body-token-volume');
+  if (volWrap) renderTokenVolumePanel(volWrap, state);
+}
+
+function applyMode(mode) {
+  state.mode = mode;
+  try {
+    localStorage.setItem('token_telemetry_mode', mode);
+  } catch (e) {}
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.id === ('btnMode' + mode.charAt(0).toUpperCase() + mode.slice(1)));
+  });
+
+  if (mode === 'light') {
+    applyTheme('light');
+  } else if (mode === 'dark') {
+    if (state.theme === 'light') applyTheme('subtle');
+  } else if (mode === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(isDark ? 'subtle' : 'light');
+  }
+}
+
+function openSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) modal.classList.add('open');
+}
+
+function closeSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) modal.classList.remove('open');
 }
 
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closePanelGallery();
     closeSessionDetail();
+    closeSettingsModal();
   }
 });
 
+// ============================================================
+// INITIALIZATION ON DOM READY
+// ============================================================
 window.addEventListener('DOMContentLoaded', () => {
+  // 1. Initialize Theme & Mode (Subtle Slate Default)
+  let savedTheme = 'subtle';
+  let savedMode = 'dark';
+  try {
+    savedTheme = localStorage.getItem('token_telemetry_theme') || 'subtle';
+    savedMode = localStorage.getItem('token_telemetry_mode') || 'dark';
+  } catch (e) {}
+  applyTheme(savedTheme);
+  applyMode(savedMode);
+
+  // 2. Load Dashboard Layout & Views
   loadDashboardLayout();
   populateViewSelect();
   initDragReorder();
+
+  // 3. Fetch Initial Telemetry Datasets
   fetchStats();
   fetchTimeseries();
   fetchSessions();
   fetchLiveStatus();
 
+  // 4. Live Engine Polling
   setInterval(fetchLiveStatus, 3500);
-
-  let searchTimeout;
-  document.getElementById('searchInput').addEventListener('input', e => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-      state.activeFilter.q = e.target.value;
-      fetchSessions();
-    }, 250);
-  });
-
-  document.getElementById('filterFolder').addEventListener('change', e => {
-    state.activeFilter.folder = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterModel').addEventListener('change', e => {
-    state.activeFilter.model = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterSort').addEventListener('change', e => {
-    state.activeFilter.sort = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterHarness')?.addEventListener('change', e => {
-    state.activeFilter.harness = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterSpeedTier')?.addEventListener('change', e => {
-    state.activeFilter.speed_tier = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterFrom').addEventListener('change', e => {
-    state.activeFilter.from = e.target.value;
-    fetchSessions();
-  });
-
-  document.getElementById('filterTo').addEventListener('change', e => {
-    state.activeFilter.to = e.target.value;
-    fetchSessions();
-  });
 });

@@ -234,11 +234,7 @@ def check_live_status():
 
 
 def get_all_stats(query_params=None):
-    conn = get_db_connection()
-    if not conn:
-        return {"error": "Database not found", "db_path": sanitize_path(str(CONFIG["opencode_db"]))}
-
-    c = conn.cursor()
+    harness_filter = query_params.get("harness", [""])[0].lower() if query_params else ""
 
     # Time window calculation
     start_ms = None
@@ -278,6 +274,97 @@ def get_all_stats(query_params=None):
                 except ValueError:
                     pass
 
+    # If a specific external harness is selected (e.g. Aider, OpenClaw, Continue)
+    if harness_filter and harness_filter not in ["opencode", "all"]:
+        harness_sessions = []
+        if harness_filter == "openclaw":
+            harness_sessions = get_openclaw_sessions()
+        elif harness_filter == "aider":
+            harness_sessions = get_aider_sessions()
+        elif harness_filter == "continue":
+            harness_sessions = get_continue_sessions()
+
+        if start_ms or end_ms:
+            filtered = []
+            for s in harness_sessions:
+                tc = s.get("time_created", 0)
+                if start_ms and tc < start_ms:
+                    continue
+                if end_ms and tc > end_ms:
+                    continue
+                filtered.append(s)
+            harness_sessions = filtered
+
+        tot_s = len(harness_sessions)
+        tot_in = sum(s.get("tokens_input", 0) for s in harness_sessions)
+        tot_out = sum(s.get("tokens_output", 0) for s in harness_sessions)
+        tot_reas = sum(s.get("tokens_reasoning", 0) for s in harness_sessions)
+        tot_msg = sum(s.get("message_count", 0) for s in harness_sessions)
+        tps_list = [s.get("tps", 0) for s in harness_sessions if s.get("tps", 0) > 0]
+        avg_tps = round(sum(tps_list) / len(tps_list), 1) if tps_list else 0.0
+        peak_tps = max(tps_list) if tps_list else 0.0
+
+        m_counts = {}
+        for s in harness_sessions:
+            m = s.get("model", "unknown")
+            m_counts[m] = m_counts.get(m, 0) + 1
+        model_shares = [{
+            "name": k,
+            "session_count": v,
+            "tokens_input": 0,
+            "tokens_output": 0,
+            "tokens_reasoning": 0,
+            "total_tokens": 0
+        } for k, v in m_counts.items()]
+
+        dir_counts = {}
+        for s in harness_sessions:
+            f = s.get("folder", "root")
+            dir_counts[f] = dir_counts.get(f, 0) + 1
+        directories = [{
+            "path": k,
+            "folder": k,
+            "count": v,
+            "tokens_output": 0
+        } for k, v in dir_counts.items()]
+
+        return {
+            "total_sessions": tot_s,
+            "total_messages": tot_msg,
+            "tokens_input": tot_in,
+            "tokens_output": tot_out,
+            "tokens_reasoning": tot_reas,
+            "tokens_total": tot_in + tot_out + tot_reas,
+            "avg_decode_tps": avg_tps,
+            "peak_decode_tps": peak_tps,
+            "total_generation_seconds": 0.0,
+            "models": m_counts,
+            "model_shares": model_shares,
+            "tool_stats": [],
+            "tps_buckets": {"< 15": 0, "15 - 30": 0, "30 - 45": 0, "45 - 60": 0, "60+": 0},
+            "duration_buckets": {"< 1 min": 0, "1 - 5 mins": 0, "5 - 15 mins": 0, "15 - 30 mins": 0, "> 30 mins": 0},
+            "directories": directories,
+            "harnesses": [
+                {"id": "all", "name": "All Harnesses", "detected": True, "count": tot_s},
+                {"id": "opencode", "name": "OpenCode", "detected": True, "count": 43},
+                {"id": "openclaw", "name": "OpenClaw", "detected": bool(CONFIG["openclaw_db"]), "count": len(get_openclaw_sessions())},
+                {"id": "aider", "name": "Aider", "detected": len(scan_aider_history()) > 0, "count": len(scan_aider_history())},
+                {"id": "continue", "name": "Continue", "detected": len(scan_continue_sessions()) > 0, "count": len(scan_continue_sessions())},
+            ],
+            "live": check_live_status(),
+            "system_info": {
+                "opencode_db": sanitize_path(str(CONFIG["opencode_db"])),
+                "openclaw_db": sanitize_path(str(CONFIG["openclaw_db"])) if CONFIG["openclaw_db"] else None,
+            }
+        }
+
+    # OpenCode SQLite DB stats (unified or opencode selected)
+    conn = get_db_connection()
+    if not conn:
+        return {"error": "Database not found", "db_path": sanitize_path(str(CONFIG["opencode_db"]))}
+
+    c = conn.cursor()
+
     where_sess = ""
     sess_params = []
     if start_ms and end_ms:
@@ -290,7 +377,19 @@ def get_all_stats(query_params=None):
     c.execute(f"SELECT COUNT(*) FROM session {where_sess};", sess_params)
     total_sessions = c.fetchone()[0]
 
-    c.execute("SELECT COUNT(*) FROM message;")
+    # Filter messages strictly by the sessions within the time window
+    if start_ms and end_ms:
+        c.execute("""
+            SELECT COUNT(*) FROM message 
+            WHERE session_id IN (SELECT id FROM session WHERE time_created >= ? AND time_created <= ?);
+        """, (start_ms, end_ms))
+    elif start_ms:
+        c.execute("""
+            SELECT COUNT(*) FROM message 
+            WHERE session_id IN (SELECT id FROM session WHERE time_created >= ?);
+        """, (start_ms,))
+    else:
+        c.execute("SELECT COUNT(*) FROM message;")
     total_messages = c.fetchone()[0]
 
     c.execute(f"""
@@ -302,7 +401,21 @@ def get_all_stats(query_params=None):
     """, sess_params)
     sum_in, sum_out, sum_reas = c.fetchone()
 
-    c.execute("SELECT data FROM message WHERE data LIKE '%assistant%';")
+    # Filter assistant messages strictly within the time window
+    if start_ms and end_ms:
+        c.execute("""
+            SELECT data FROM message 
+            WHERE session_id IN (SELECT id FROM session WHERE time_created >= ? AND time_created <= ?)
+              AND data LIKE '%assistant%';
+        """, (start_ms, end_ms))
+    elif start_ms:
+        c.execute("""
+            SELECT data FROM message 
+            WHERE session_id IN (SELECT id FROM session WHERE time_created >= ?)
+              AND data LIKE '%assistant%';
+        """, (start_ms,))
+    else:
+        c.execute("SELECT data FROM message WHERE data LIKE '%assistant%';")
     messages_data = c.fetchall()
 
     tps_samples = []
@@ -346,7 +459,16 @@ def get_all_stats(query_params=None):
     avg_tps = (total_assistant_out_tokens / total_assistant_gen_s) if total_assistant_gen_s > 0 else 0.0
     peak_tps = max(tps_samples) if tps_samples else 0.0
 
-    c.execute("""
+    where_model_clause = "WHERE model IS NOT NULL"
+    model_params = []
+    if start_ms and end_ms:
+        where_model_clause += " AND time_created >= ? AND time_created <= ?"
+        model_params = [start_ms, end_ms]
+    elif start_ms:
+        where_model_clause += " AND time_created >= ?"
+        model_params = [start_ms]
+
+    c.execute(f"""
         SELECT 
             COALESCE(json_extract(model, '$.providerID'), 'local') || '/' || COALESCE(json_extract(model, '$.id'), 'model') as full_name,
             COALESCE(SUM(tokens_input), 0), 
@@ -354,10 +476,10 @@ def get_all_stats(query_params=None):
             COALESCE(SUM(tokens_reasoning), 0),
             COUNT(*)
         FROM session 
-        WHERE model IS NOT NULL 
+        {where_model_clause}
         GROUP BY full_name
         ORDER BY SUM(tokens_output) DESC;
-    """)
+    """, model_params)
     model_shares = []
     for m_name, m_in, m_out, m_reas, m_count in c.fetchall():
         model_shares.append({
@@ -369,17 +491,56 @@ def get_all_stats(query_params=None):
             "session_count": m_count
         })
 
-    c.execute("""
-        SELECT json_extract(data, '$.tool') as tool_name, COUNT(*) 
-        FROM part 
-        WHERE json_extract(data, '$.type') = 'tool' 
-        GROUP BY tool_name 
-        ORDER BY COUNT(*) DESC 
-        LIMIT 12;
-    """)
+    # Tool calling stats strictly within window
+    if start_ms and end_ms:
+        c.execute("""
+            SELECT json_extract(data, '$.tool') as tool_name, COUNT(*) 
+            FROM part 
+            WHERE json_extract(data, '$.type') = 'tool' 
+              AND message_id IN (
+                  SELECT id FROM message WHERE session_id IN (
+                      SELECT id FROM session WHERE time_created >= ? AND time_created <= ?
+                  )
+              )
+            GROUP BY tool_name 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 12;
+        """, (start_ms, end_ms))
+    elif start_ms:
+        c.execute("""
+            SELECT json_extract(data, '$.tool') as tool_name, COUNT(*) 
+            FROM part 
+            WHERE json_extract(data, '$.type') = 'tool' 
+              AND message_id IN (
+                  SELECT id FROM message WHERE session_id IN (
+                      SELECT id FROM session WHERE time_created >= ?
+                  )
+              )
+            GROUP BY tool_name 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 12;
+        """, (start_ms,))
+    else:
+        c.execute("""
+            SELECT json_extract(data, '$.tool') as tool_name, COUNT(*) 
+            FROM part 
+            WHERE json_extract(data, '$.type') = 'tool' 
+            GROUP BY tool_name 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 12;
+        """)
     tools = [{"name": r[0] or "tool", "count": r[1]} for r in c.fetchall()]
 
-    c.execute("SELECT directory, COUNT(*), COALESCE(SUM(tokens_output), 0) FROM session WHERE directory IS NOT NULL GROUP BY directory ORDER BY COUNT(*) DESC;")
+    where_dir_clause = "WHERE directory IS NOT NULL"
+    dir_params = []
+    if start_ms and end_ms:
+        where_dir_clause += " AND time_created >= ? AND time_created <= ?"
+        dir_params = [start_ms, end_ms]
+    elif start_ms:
+        where_dir_clause += " AND time_created >= ?"
+        dir_params = [start_ms]
+
+    c.execute(f"SELECT directory, COUNT(*), COALESCE(SUM(tokens_output), 0) FROM session {where_dir_clause} GROUP BY directory ORDER BY COUNT(*) DESC;", dir_params)
     dir_rows = c.fetchall()
     directories = [{
         "path": sanitize_path(r[0]),
@@ -389,7 +550,16 @@ def get_all_stats(query_params=None):
     } for r in dir_rows]
 
     duration_buckets = {"< 1 min": 0, "1 - 5 mins": 0, "5 - 15 mins": 0, "15 - 30 mins": 0, "> 30 mins": 0}
-    c.execute("SELECT time_created, time_updated FROM session WHERE time_created IS NOT NULL AND time_updated IS NOT NULL;")
+    where_dur_clause = "WHERE time_created IS NOT NULL AND time_updated IS NOT NULL"
+    dur_params = []
+    if start_ms and end_ms:
+        where_dur_clause += " AND time_created >= ? AND time_created <= ?"
+        dur_params = [start_ms, end_ms]
+    elif start_ms:
+        where_dur_clause += " AND time_created >= ?"
+        dur_params = [start_ms]
+
+    c.execute(f"SELECT time_created, time_updated FROM session {where_dur_clause};", dur_params)
     for cr, up in c.fetchall():
         if up > cr:
             mins = (up - cr) / (1000.0 * 60)
@@ -933,37 +1103,96 @@ def get_session_detail(session_id):
     }
 
 
-def get_timeseries():
+def get_timeseries(query_params=None):
+    harness_filter = query_params.get("harness", [""])[0].lower() if query_params else ""
+    if harness_filter and harness_filter not in ["opencode", "all"]:
+        return []
+
     conn = get_db_connection()
     if not conn:
         return {"error": "Database not found"}
 
     c = conn.cursor()
 
-    c.execute("""
+    # Time window calculation
+    start_ms = None
+    end_ms = None
+    now_ms = int(time.time() * 1000)
+    window = query_params.get("window", [""])[0] if query_params else ""
+    date_from = query_params.get("from", [""])[0] if query_params else ""
+    date_to = query_params.get("to", [""])[0] if query_params else ""
+
+    if window:
+        window_map = {
+            "10m": 10 * 60 * 1000,
+            "1h": 60 * 60 * 1000,
+            "6h": 6 * 60 * 60 * 1000,
+            "12h": 12 * 60 * 60 * 1000,
+            "1d": 24 * 60 * 60 * 1000,
+            "3d": 3 * 24 * 60 * 60 * 1000,
+            "7d": 7 * 24 * 60 * 60 * 1000,
+            "14d": 14 * 24 * 60 * 60 * 1000,
+            "30d": 30 * 24 * 60 * 60 * 1000,
+            "90d": 90 * 24 * 60 * 60 * 1000,
+        }
+        delta_ms = window_map.get(window)
+        if delta_ms:
+            start_ms = now_ms - delta_ms
+            end_ms = now_ms
+    else:
+        if date_from:
+            try:
+                start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp() * 1000)
+            except ValueError:
+                pass
+
+    where_sess = "WHERE time_created IS NOT NULL"
+    params = []
+    if start_ms and end_ms:
+        where_sess += " AND time_created >= ? AND time_created <= ?"
+        params = [start_ms, end_ms]
+    elif start_ms:
+        where_sess += " AND time_created >= ?"
+        params = [start_ms]
+
+    # Granularity format based on window
+    if window in ["10m", "1h", "6h"]:
+        fmt = "%H:%M"
+    elif window in ["1d", "3d"]:
+        fmt = "%m-%d %H:00"
+    else:
+        fmt = "%Y-%m-%d"
+
+    c.execute(f"""
         SELECT 
-            strftime('%Y-%m-%d', time_created / 1000, 'unixepoch') as day,
+            strftime('{fmt}', time_created / 1000, 'unixepoch', 'localtime') as day,
             COUNT(*) as session_count,
             COALESCE(SUM(tokens_input), 0) as tokens_in,
             COALESCE(SUM(tokens_output), 0) as tokens_out,
-            COALESCE(SUM(tokens_reasoning), 0) as tokens_reas
+            COALESCE(SUM(tokens_reasoning), 0) as tokens_reas,
+            MIN(time_created) as min_t
         FROM session 
-        WHERE time_created IS NOT NULL
+        {where_sess}
         GROUP BY day
-        ORDER BY day ASC;
-    """ )
+        ORDER BY min_t ASC;
+    """, params)
     day_rows = c.fetchall()
 
     days = []
     for r in day_rows:
-        day_str, sess_cnt, t_in, t_out, t_reas = r
+        day_str, sess_cnt, t_in, t_out, t_reas, min_t = r
         if not day_str:
             continue
 
-        c.execute("""
+        c.execute(f"""
             SELECT m.data 
             FROM message m
-            WHERE strftime('%Y-%m-%d', m.time_created / 1000, 'unixepoch') = ?
+            WHERE strftime('{fmt}', m.time_created / 1000, 'unixepoch', 'localtime') = ?
               AND m.data LIKE '%assistant%'
               AND m.data LIKE '%completed%';
         """, (day_str,))
@@ -1022,6 +1251,8 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
             self.send_json(get_all_stats(query))
         elif path == "/api/sessions":
             self.send_json(get_sessions(query))
+        elif path == "/api/timeseries":
+            self.send_json(get_timeseries(query))
         elif path == "/api/export":
             sessions = get_sessions(query)
             # Include deep turn telemetry for each session
