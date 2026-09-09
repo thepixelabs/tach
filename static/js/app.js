@@ -753,7 +753,14 @@ function initPanelResize(e, panelId) {
   const rect = panelEl.getBoundingClientRect();
   const gridEl = document.getElementById('dashboardGrid');
   const gridRect = gridEl.getBoundingClientRect();
-  const colWidth = gridRect.width / 12;
+  const gridStyle = getComputedStyle(gridEl);
+
+  // Read the real track metrics rather than assuming them: --panel-row and the
+  // gap are in rem, so they change with the responsive type ladder.
+  const cols = parseInt(gridStyle.gridTemplateColumns.split(' ').length, 10) || 12;
+  const colWidth = gridRect.width / cols;
+  const rowHeight = parseFloat(gridStyle.gridAutoRows) || 56;
+  const rowGap = parseFloat(gridStyle.rowGap) || 20;
 
   resizeState = {
     panelId,
@@ -764,6 +771,10 @@ function initPanelResize(e, panelId) {
     startW: rect.width,
     startH: rect.height,
     colWidth,
+    cols,
+    rowHeight,
+    rowGap,
+    limits: archetypeLimits(panelId),
   };
 
   window.addEventListener('mousemove', onPanelResizeMove);
@@ -774,24 +785,45 @@ function initPanelResize(e, panelId) {
 
 function onPanelResizeMove(e) {
   if (!resizeState) return;
+  const { item, panelEl, limits, colWidth, rowHeight, rowGap, cols: gridCols } = resizeState;
   const dx = e.clientX - resizeState.startX;
   const dy = e.clientY - resizeState.startY;
 
-  // Calculate new column width in exact single-column increments (1 to 12)
-  const rawCol = Math.round((resizeState.startW + dx) / resizeState.colWidth);
-  const newCol = Math.max(1, Math.min(12, rawCol));
+  // Both axes snap to the same lattice the grid lays out on. Height used to be
+  // written as a pixel min-height, which made the element outgrow its grid area
+  // and overlap the panels below instead of reflowing them.
+  const rawCols = Math.round((resizeState.startW + dx) / colWidth);
+  const newCols = clampSpan(rawCols, limits.minCols, Math.min(limits.maxCols, gridCols));
 
-  if (newCol !== resizeState.item.cols) {
-    resizeState.item.cols = newCol;
-    resizeState.panelEl.style.setProperty('--panel-cols', newCol);
-    const badge = document.getElementById('col-badge-' + resizeState.panelId);
-    if (badge) badge.textContent = newCol + '/12 Col';
+  // A span of N rows is N tracks plus the (N-1) gaps between them.
+  const rawRows = Math.round((resizeState.startH + dy + rowGap) / (rowHeight + rowGap));
+  const newRows = clampSpan(rawRows, limits.minRows, limits.maxRows);
+
+  let changed = false;
+  if (newCols !== item.cols) {
+    item.cols = newCols;
+    panelEl.style.setProperty('--panel-cols', newCols);
+    changed = true;
+  }
+  if (newRows !== item.rows) {
+    item.rows = newRows;
+    panelEl.style.setProperty('--panel-rows', newRows);
+    changed = true;
   }
 
-  // Adjust height if dragged vertically (can reduce down to 90px)
-  const newH = Math.max(90, resizeState.startH + dy);
-  resizeState.panelEl.style.minHeight = Math.round(newH) + 'px';
-  resizeState.item.height = Math.round(newH);
+  // The legacy pixel height would be converted back into rows on next load and
+  // fight this value, so drop it.
+  delete item.height;
+
+  if (changed) {
+    const badge = document.getElementById('col-badge-' + resizeState.panelId);
+    if (badge) badge.textContent = `${newCols}\u00d7${newRows}`;
+  }
+}
+
+function clampSpan(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 function onPanelResizeEnd() {
@@ -847,15 +879,16 @@ function onPanelDragStart(e, panelId) {
     panelEl.classList.add('is-dragging');
   }
 
-  // Create ghost preview placeholder matching column span
+  // The drop preview must occupy the same grid footprint as the panel it
+  // stands in for, in both axes - a pixel height would leave it spanning one
+  // row while looking several rows tall.
   const item = state.layout.find(p => p.id === panelId);
-  const colSpan = item ? (item.cols || 6) : 6;
   if (!dragPlaceholder) {
     dragPlaceholder = document.createElement('div');
   }
   dragPlaceholder.className = 'drag-placeholder';
-  dragPlaceholder.style.setProperty('--panel-cols', colSpan);
-  dragPlaceholder.style.minHeight = (panelEl ? panelEl.offsetHeight : 220) + 'px';
+  dragPlaceholder.style.setProperty('--panel-cols', item ? (item.cols || 6) : 6);
+  dragPlaceholder.style.setProperty('--panel-rows', item ? (item.rows || 4) : 4);
 }
 
 function initDragReorder() {

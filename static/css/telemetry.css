@@ -1215,12 +1215,13 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   border: 1.5px dashed var(--border-active) !important;
   background: rgba(var(--accent-primary-rgb), 0.04) !important;
   border-radius: var(--radius-lg);
-  min-height: 180px;
+  /* Height comes from the row span, not a fixed pixel floor. */
+  min-block-size: 0;
   pointer-events: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 
 .brand-subtitle {
@@ -3702,7 +3703,11 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   min-block-size: 0;
 }
 
-.drag-placeholder { grid-column: span var(--panel-cols, 6); }
+.drag-placeholder {
+  grid-column: span var(--panel-cols, 6);
+  grid-row: span var(--panel-rows, 4);
+  min-block-size: 0;
+}
 
 .dashboard-panel.is-unavailable { opacity: 0.75; border-style: dashed; }
 
