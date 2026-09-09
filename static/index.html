@@ -13,113 +13,107 @@
 
   <div class="app-shell" data-tab="dashboard">
     
-    <!-- Handy Left Navigation Menu / Sidebar -->
-    <aside class="app-sidebar" id="appSidebar">
-      <div class="sidebar-header">
-        <div class="brand-badge">⚡</div>
+    <!-- Left navigation. Page list is rendered from PAGE_REGISTRY. -->
+    <aside class="sidebar" id="appSidebar">
+      <div class="sidebar__brand">
+        <div class="brand-badge" aria-hidden="true">&#9889;</div>
         <div class="brand-text">
           <div class="brand-title">TOKEN TELEMETRY</div>
           <div class="brand-sub mono">Model Observatory</div>
         </div>
       </div>
 
-      <!-- Main Navigation Menu -->
-      <nav class="sidebar-nav">
-        <div class="nav-section-title mono">NAVIGATION</div>
-        <button class="nav-item active" id="navItemDashboard" onclick="switchNavTab('dashboard')">
-          <span class="nav-icon">⚡</span>
-          <span>Observatory</span>
-        </button>
-        <button class="nav-item" id="navItemSessions" onclick="switchNavTab('sessions')">
-          <span class="nav-icon">💬</span>
-          <span>Sessions Explorer</span>
-        </button>
-        <button class="nav-item" id="navItemSettings" onclick="openSettingsModal()">
-          <span class="nav-icon">⚙️</span>
-          <span>Settings & Theme</span>
-        </button>
-      </nav>
+      <div class="sidebar__scroll">
+        <nav class="navgroup" aria-label="Primary">
+          <p class="navgroup__title">Observatory</p>
+          <ul class="navgroup__list" id="navListMain"></ul>
+        </nav>
 
-      <!-- Data Source Selector in Sidebar -->
-      <div class="sidebar-sources">
-        <div class="nav-section-title mono">DATA SOURCES</div>
-        <div class="sidebar-source-list" id="sidebarSourceList">
-          <button class="sidebar-source-item active" data-harness="" onclick="selectDataSource('')" title="Unified view across all harnesses">
-            <span class="source-icon">🌐</span>
-            <span class="source-name">All Sources</span>
-            <span class="source-pill mono" id="sideCountAll">--</span>
-          </button>
-          <button class="sidebar-source-item" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
-            <span class="source-icon">⚡</span>
-            <span class="source-name">OpenCode</span>
-            <span class="source-pill mono" id="sideCountOpenCode">--</span>
-          </button>
-          <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw agent transcripts across every OpenClaw home on this machine">
-            <span class="source-icon">🐾</span>
-            <span class="source-name">OpenClaw</span>
-            <span class="source-pill mono" id="sideCountOpenClaw">--</span>
-          </button>
-          <button class="sidebar-source-item" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
-            <span class="source-icon">🤖</span>
-            <span class="source-name">Aider</span>
-            <span class="source-pill mono" id="sideCountAider">--</span>
-          </button>
-          <button class="sidebar-source-item" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE sessions">
-            <span class="source-icon">🚀</span>
-            <span class="source-name">Continue</span>
-            <span class="source-pill mono" id="sideCountContinue">--</span>
-          </button>
-        </div>
+        <nav class="navgroup" id="navGroupAnalysis" aria-label="Analysis" hidden>
+          <p class="navgroup__title">Analysis</p>
+          <ul class="navgroup__list" id="navListAnalysis"></ul>
+        </nav>
 
-        <!-- Local inference servers: these are engines, not session archives -->
-        <div class="nav-section-title mono servers-title">LOCAL SERVERS</div>
-        <div class="sidebar-server-list" id="sidebarServerList">
-          <button class="sidebar-server-item" data-server="mlx" onclick="showServerPanel('mlx')" title="Apple Silicon MLX LM Server (:8080)">
-            <span class="source-icon">🟢</span>
-            <span class="server-meta">
-              <span class="source-name">MLX LM</span>
-              <span class="server-port mono">:8080</span>
-            </span>
-            <span class="status-chip mono offline" id="sideStatusMlx">Offline</span>
-          </button>
-          <button class="sidebar-server-item" data-server="ollama" onclick="showServerPanel('ollama')" title="Local Ollama daemon (:11434)">
-            <span class="source-icon">🦙</span>
-            <span class="server-meta">
-              <span class="source-name">Ollama</span>
-              <span class="server-port mono">:11434</span>
-            </span>
-            <span class="status-chip mono offline" id="sideStatusOllama">Offline</span>
-          </button>
-          <button class="sidebar-server-item" data-server="openclaw" onclick="showServerPanel('openclaw')" title="OpenClaw gateway daemon">
-            <span class="source-icon">🐾</span>
-            <span class="server-meta">
-              <span class="source-name">OpenClaw GW</span>
-              <span class="server-port mono" id="sidePortOpenClawGw">:18789</span>
-            </span>
-            <span class="status-chip mono offline" id="sideStatusOpenClawGw">Offline</span>
-          </button>
-        </div>
+        <details class="navgroup navgroup--collapsible" id="groupSources" open>
+          <summary class="navgroup__title">Data sources</summary>
+          <div class="sidebar-source-list" id="sidebarSourceList">
+            <button class="sidebar-source-item active" data-harness="" onclick="selectDataSource('')" title="Unified view across all harnesses">
+              <span class="source-icon" aria-hidden="true">&#127760;</span>
+              <span class="source-name">All Sources</span>
+              <span class="source-pill mono" id="sideCountAll">--</span>
+            </button>
+            <button class="sidebar-source-item" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
+              <span class="source-icon" aria-hidden="true">&#9889;</span>
+              <span class="source-name">OpenCode</span>
+              <span class="source-pill mono" id="sideCountOpenCode">--</span>
+            </button>
+            <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw agent transcripts across every OpenClaw home on this machine">
+              <span class="source-icon" aria-hidden="true">&#128062;</span>
+              <span class="source-name">OpenClaw</span>
+              <span class="source-pill mono" id="sideCountOpenClaw">--</span>
+            </button>
+            <button class="sidebar-source-item" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
+              <span class="source-icon" aria-hidden="true">&#129302;</span>
+              <span class="source-name">Aider</span>
+              <span class="source-pill mono" id="sideCountAider">--</span>
+            </button>
+            <button class="sidebar-source-item" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE sessions">
+              <span class="source-icon" aria-hidden="true">&#128640;</span>
+              <span class="source-name">Continue</span>
+              <span class="source-pill mono" id="sideCountContinue">--</span>
+            </button>
+          </div>
+        </details>
+
+        <details class="navgroup navgroup--collapsible" id="groupServers" open>
+          <summary class="navgroup__title">Local servers</summary>
+          <div class="sidebar-server-list" id="sidebarServerList">
+            <button class="sidebar-server-item" data-server="mlx" onclick="showServerPanel('mlx')" title="Apple Silicon MLX LM Server (:8080)">
+              <span class="source-icon" aria-hidden="true">&#128994;</span>
+              <span class="server-meta">
+                <span class="source-name">MLX LM</span>
+                <span class="server-port mono">:8080</span>
+              </span>
+              <span class="status-chip mono offline" id="sideStatusMlx">Offline</span>
+            </button>
+            <button class="sidebar-server-item" data-server="ollama" onclick="showServerPanel('ollama')" title="Local Ollama daemon (:11434)">
+              <span class="source-icon" aria-hidden="true">&#129433;</span>
+              <span class="server-meta">
+                <span class="source-name">Ollama</span>
+                <span class="server-port mono">:11434</span>
+              </span>
+              <span class="status-chip mono offline" id="sideStatusOllama">Offline</span>
+            </button>
+            <button class="sidebar-server-item" data-server="openclaw" onclick="showServerPanel('openclaw')" title="OpenClaw gateway daemon">
+              <span class="source-icon" aria-hidden="true">&#128062;</span>
+              <span class="server-meta">
+                <span class="source-name">OpenClaw GW</span>
+                <span class="server-port mono" id="sidePortOpenClawGw">:18789</span>
+              </span>
+              <span class="status-chip mono offline" id="sideStatusOpenClawGw">Offline</span>
+            </button>
+          </div>
+        </details>
       </div>
 
-      <!-- Sidebar Footer Status & Theme -->
-      <div class="sidebar-footer">
+      <div class="sidebar__foot">
+        <nav class="navgroup navgroup--pinned" aria-label="Settings">
+          <ul class="navgroup__list" id="navListFoot"></ul>
+        </nav>
         <div class="backend-pills-row" id="sidebarBackendStatus">
-          <div class="backend-dot-status online" id="dotMlx" title="MLX Server (:8080) Online">
-            <span class="dot"></span>
-            <span class="mono">MLX:8080</span>
+          <div class="backend-dot-status offline" id="dotMlx" title="MLX Server (:8080)">
+            <span class="dot red"></span><span class="mono">MLX:8080</span>
           </div>
-          <div class="backend-dot-status offline" id="dotOllama" title="Ollama (:11434) Offline">
-            <span class="dot red"></span>
-            <span class="mono">OLLAMA</span>
+          <div class="backend-dot-status offline" id="dotOllama" title="Ollama (:11434)">
+            <span class="dot red"></span><span class="mono">OLLAMA</span>
           </div>
-          <div class="backend-dot-status offline" id="dotOpenClawGw" title="OpenClaw gateway offline">
-            <span class="dot red"></span>
-            <span class="mono">CLAW-GW</span>
+          <div class="backend-dot-status offline" id="dotOpenClawGw" title="OpenClaw gateway">
+            <span class="dot red"></span><span class="mono">CLAW-GW</span>
           </div>
         </div>
-        <button class="btn-theme-quick" onclick="openSettingsModal()" title="Customize appearance & subtle theme">
-          <span>🎨</span>
-          <span id="currentThemeName">Theme: Subtle Slate</span>
+        <button class="mode-toggle" type="button" id="modeToggle" onclick="toggleMode()" aria-pressed="false">
+          <span class="mode-toggle__icon" aria-hidden="true">&#9789;</span>
+          <span id="modeToggleLabel">Dark mode</span>
         </button>
       </div>
     </aside>
@@ -127,118 +121,90 @@
     <!-- Main Content Area -->
     <div class="app-main">
 
-      <!-- Constant Top Navigation Bar -->
+      <!-- Top bar. Every control declares data-toolbar so the router can
+           hide the ones that do not apply to the active page. -->
       <header class="app-topbar">
-        <!-- Top Bar Left: Active View Selector & Presets -->
-        <div class="topbar-left">
-          <div class="views-manager-group" title="Dispatch-style customizable saved views">
-            <span class="views-label mono">VIEW:</span>
-            <select id="dashboardViewSelect" class="view-select" onchange="switchDashboardView(this.value)">
-              <option value="default">⚡ Default Overview</option>
-              <option value="mtp_speculative">🚀 Speculative MTP & Latency</option>
-              <option value="token_economics">📊 Token Economics & Tools</option>
-              <option value="realtime_monitor">⏱ Real-Time Monitor</option>
-            </select>
-            <button class="btn-topbar-action" onclick="saveCurrentView()" title="Save layout and filter settings to current view">
-              <span>💾</span>
-              <span>Save</span>
+        <div class="topbar-lead" data-toolbar="dashboardPicker">
+          <button class="dash-switcher" id="dashSwitcher" type="button"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="dashMenu"
+                  onclick="toggleDashMenu(event)">
+            <span class="dash-switcher__name" id="dashSwitcherName">Default Overview</span>
+            <span class="dash-switcher__badge" id="dashSwitcherBadge" hidden>Built-in</span>
+            <span class="dash-switcher__caret" aria-hidden="true">&#9662;</span>
+          </button>
+          <span class="dash-dirty" id="dashDirty" hidden title="This dashboard has unsaved changes"></span>
+          <button class="btn btn--accent btn--sm dash-save" id="dashSave" type="button"
+                  hidden onclick="saveActiveDashboard()">Save</button>
+          <div class="dash-menu" id="dashMenu" role="menu" aria-labelledby="dashSwitcher" hidden></div>
+        </div>
+
+        <div class="topbar-center" data-toolbar="timeWindow">
+          <div class="timeseg" id="timewindowPills" role="radiogroup" aria-label="Time window">
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="10m" onclick="setTimeWindow('10m')">10m</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="1h" onclick="setTimeWindow('1h')">1h</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="6h" onclick="setTimeWindow('6h')">6h</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="1d" onclick="setTimeWindow('1d')">1d</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="3d" onclick="setTimeWindow('3d')">3d</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="7d" onclick="setTimeWindow('7d')">1w</button>
+            <button class="timewindow-pill" type="button" role="radio" aria-checked="false" data-window="30d" onclick="setTimeWindow('30d')">1m</button>
+            <button class="timewindow-pill active" type="button" role="radio" aria-checked="true" data-window="all" onclick="setTimeWindow('all')">All</button>
+            <button class="timewindow-pill timeseg__custom" type="button" role="radio" aria-checked="false"
+                    data-window="custom" aria-haspopup="dialog" aria-expanded="false"
+                    onclick="toggleRangePopover(event)">
+              <span aria-hidden="true">&#128197;</span>
+              <span id="customRangeLabel">Custom</span>
             </button>
-            <button class="btn-topbar-action" onclick="createNewViewPrompt()" title="Create a new custom dashboard view">
-              <span>+</span>
-              <span>New</span>
-            </button>
+          </div>
+          <div class="range-pop" id="rangePop" role="dialog" aria-label="Custom date range" hidden>
+            <label class="range-pop__row">
+              <span>From</span>
+              <input type="datetime-local" id="filterFromDT" class="dt-input" onchange="onCustomDateTimeChange()">
+            </label>
+            <label class="range-pop__row">
+              <span>To</span>
+              <input type="datetime-local" id="filterToDT" class="dt-input" onchange="onCustomDateTimeChange()">
+            </label>
+            <div class="range-pop__actions">
+              <button class="btn btn--ghost btn--sm" type="button" onclick="clearCustomDateTime()">Clear</button>
+              <button class="btn btn--accent btn--sm" type="button" onclick="toggleRangePopover()">Done</button>
+            </div>
           </div>
         </div>
 
-        <!-- Top Bar Middle: Granular Time Window Selector -->
-        <div class="topbar-middle">
-          <div class="timewindow-pills" id="timewindowPills">
-            <button class="timewindow-pill" data-window="10m" onclick="setTimeWindow('10m')">10m</button>
-            <button class="timewindow-pill" data-window="1h" onclick="setTimeWindow('1h')">1h</button>
-            <button class="timewindow-pill" data-window="6h" onclick="setTimeWindow('6h')">6h</button>
-            <button class="timewindow-pill" data-window="1d" onclick="setTimeWindow('1d')">1d</button>
-            <button class="timewindow-pill" data-window="3d" onclick="setTimeWindow('3d')">3d</button>
-            <button class="timewindow-pill" data-window="7d" onclick="setTimeWindow('7d')">1w</button>
-            <button class="timewindow-pill" data-window="30d" onclick="setTimeWindow('30d')">1m</button>
-            <button class="timewindow-pill active" data-window="all" onclick="setTimeWindow('all')">All Time</button>
-          </div>
-          <div class="topbar-datetime-group">
-            <input type="datetime-local" id="filterFromDT" class="dt-input" onchange="onCustomDateTimeChange()" title="Filter by start date and time">
-            <span>to</span>
-            <input type="datetime-local" id="filterToDT" class="dt-input" onchange="onCustomDateTimeChange()" title="Filter by end date and time">
-            <button class="btn-ghost-sm" onclick="clearCustomDateTime()" title="Reset custom dates">✕</button>
-          </div>
-        </div>
-
-        <!-- Top Bar Right: Customize Layout, Add Panel, Export, Settings -->
-        <div class="topbar-right">
-          <button class="btn-customize-layout" id="btnCustomizeLayout" onclick="toggleEditLayout()" title="Toggle edit mode to move and resize panels">
-            <span id="customizeIcon">✏️</span>
-            <span id="customizeText">Edit Layout</span>
+        <div class="topbar-trail">
+          <button class="btn btn--ghost btn--md" type="button" data-toolbar="addPanel"
+                  onclick="openPanelGallery()" title="Add telemetry panels to this dashboard">
+            <span aria-hidden="true">+</span><span>Panel</span>
           </button>
-          <button class="btn-topbar-action" onclick="openPanelGallery()" title="Add telemetry panels to dashboard">
-            <span>+</span>
-            <span>Add Panel</span>
+          <button class="btn btn--ghost btn--md" type="button" id="btnCustomizeLayout"
+                  data-toolbar="editLayout" aria-pressed="false" onclick="toggleEditLayout()"
+                  title="Move and resize panels">
+            <span aria-hidden="true">&#9998;</span><span id="customizeText">Edit dashboard</span>
           </button>
-          <button class="btn-topbar-action" onclick="exportFilteredData()" title="Scrape & download filtered dataset as JSON">
-            <span>📥</span>
-            <span>Export JSON</span>
-          </button>
-          <button class="btn-topbar-icon" onclick="openSettingsModal()" title="Settings & Appearance">
-            <span>⚙️</span>
+          <button class="btn btn--ghost btn--md" type="button" data-toolbar="export"
+                  onclick="exportFilteredData()" title="Download the filtered dataset as JSON">
+            <span aria-hidden="true">&#128229;</span><span>Export</span>
           </button>
         </div>
       </header>
 
-      <!-- Main Scrollable Content Container (Full Width) -->
-      <main class="app-viewport">
-        
-        <!-- Tab 1: Observatory Dashboard View -->
-        <section id="viewDashboard" class="view-tab active">
-          <!-- Edit Layout Info Banner (shown only when Customize mode is ON) -->
-          <div class="edit-layout-banner" id="editLayoutBanner" style="display:none;">
-            <div class="banner-text">
-              <span>✏️</span>
-              <span><strong>Layout Edit Mode Active:</strong> Drag panels by their header to reorder (live drop preview). Drag the bottom-right corner (⤡) to fluidly resize columns & height.</span>
-            </div>
-            <div class="banner-actions">
-              <button class="btn-ghost-sm" onclick="resetDashboardLayout()">↺ Reset Layout</button>
-              <button class="btn-done-editing" onclick="toggleEditLayout()">✓ Done Editing</button>
-            </div>
-          </div>
-
-          <!-- Dynamic 12-Column Dashboard Grid -->
-          <div class="dashboard-grid" id="dashboardGrid">
-            <!-- Dynamically populated from state.layout and PANEL_REGISTRY -->
-          </div>
-        </section>
-
-        <!-- Tab 2: Full Sessions & Turns Explorer View -->
-        <section id="viewSessions" class="view-tab">
-          <div class="sessions-full-view" id="sessionsFullViewContainer">
-            <!-- Populated dynamically -->
-          </div>
-        </section>
-
-      </main>
+      <!-- Pages are created on demand by the router into this host. -->
+      <main class="app-viewport" id="pageHost"></main>
     </div>
   </div>
 
-  <!-- Settings & Theme Customization Modal -->
-  <div class="modal-backdrop" id="settingsModal" onclick="if(event.target===this) closeSettingsModal()">
-    <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Observatory Settings & Themes">
-      <div class="settings-header">
-        <div style="display:flex;align-items:center;gap:0.6rem;">
-          <span style="font-size:1.3rem;">⚙️</span>
-          <div>
-            <div style="font-size:1.05rem;font-weight:700;color:var(--text-main);">Settings & Theme Control</div>
-            <div style="font-size:0.75rem;color:var(--text-sub);">Personalize color palette, contrast, and layout</div>
-          </div>
-        </div>
-        <button class="panel-close-btn" onclick="closeSettingsModal()" title="Close (Esc)">✕</button>
-      </div>
+  <div id="a11yStatus" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
-      <div class="settings-body">
+  <!-- Settings & Theme Customization Modal -->
+  <!-- Settings page content. Settings is a destination now, not a dialog;
+       the router mounts this template into the settings page. -->
+  <template id="tplSettings">
+    <div class="page-head">
+      <h1 class="page-title">Settings &amp; Theme</h1>
+      <p class="page-sub">Personalize the color palette, contrast and layout.</p>
+    </div>
+    <div class="settings-body">
+
         
         <!-- Theme Palette Picker -->
         <div class="settings-section">
@@ -326,14 +292,8 @@
             </div>
           </div>
         </div>
-
-      </div>
-
-      <div class="settings-footer">
-        <button class="btn-primary-neon" onclick="closeSettingsModal()">Done</button>
-      </div>
     </div>
-  </div>
+  </template>
 
   <!-- Slide-Over Session Detail Drawer -->
   <div class="drawer-backdrop" id="drawerBackdrop" onclick="if(event.target===this) closeSessionDetail()">
@@ -416,6 +376,9 @@
 
   <script src="/js/marked.min.js"></script>
   <script src="/js/markdown.js"></script>
+  <!-- Load order is load-bearing: storage -> router -> app. Do not reorder. -->
+  <script src="/js/storage.js"></script>
+  <script src="/js/router.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

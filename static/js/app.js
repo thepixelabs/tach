@@ -27,7 +27,8 @@ const state = {
   isEditingLayout: false,
   theme: 'subtle',
   mode: 'dark',
-  activeTab: 'dashboard',
+  activePage: 'observatory',
+  workspace: null,
   gallery: {
     activeTab: 'all',
     query: '',
@@ -36,63 +37,71 @@ const state = {
   resizeObservers: new Map(),
 };
 
+// router.js reads this; a top-level const is not a window property.
+window.state = state;
+
 // Default Dashboard Layout (12-column grid system)
 const DEFAULT_LAYOUT = [
-  { id: 'kpi-banner', col: 12 },
-  { id: 'tps-trend', col: 8 },
-  { id: 'speculative-burst', col: 4 },
-  { id: 'prefill-vs-decode', col: 6 },
-  { id: 'ttft-latency', col: 6 },
-  { id: 'telemetry-table', col: 12 },
-  { id: 'speed-distribution', col: 4 },
-  { id: 'model-share', col: 4 },
-  { id: 'tool-usage', col: 4 },
-  { id: 'apc-cache', col: 6 },
-  { id: 'decode-acceleration', col: 6 },
-  { id: 'token-volume', col: 6 },
-  { id: 'live-pulse', col: 6 },
-  { id: 'sessions-explorer', col: 12 },
+  { id: 'kpi-banner', cols: 12, rows: 3 },
+  { id: 'tps-trend', cols: 8, rows: 5 },
+  { id: 'speculative-burst', cols: 4, rows: 5 },
+  { id: 'prefill-vs-decode', cols: 6, rows: 4 },
+  { id: 'ttft-latency', cols: 6, rows: 4 },
+  { id: 'telemetry-table', cols: 12, rows: 8 },
+  { id: 'speed-distribution', cols: 4, rows: 4 },
+  { id: 'model-share', cols: 4, rows: 4 },
+  { id: 'tool-usage', cols: 4, rows: 4 },
+  { id: 'apc-cache', cols: 6, rows: 4 },
+  { id: 'decode-acceleration', cols: 6, rows: 4 },
+  { id: 'token-volume', cols: 6, rows: 5 },
+  { id: 'live-pulse', cols: 6, rows: 4 },
+  { id: 'sessions-explorer', cols: 12, rows: 10 },
 ];
 
-// Preset Saved Views (Dispatch Framework)
-const PRESET_VIEWS = {
+// Built-in dashboards. These live in code and are never copied into storage,
+// so a delete cannot reach them - the guard is structural, not a runtime if.
+const BUILTIN_DASHBOARDS = {
   'default': {
-    name: '⚡ Default Overview',
+    name: 'Default Overview',
+    icon: '\u26A1',
     layout: DEFAULT_LAYOUT,
-    filter: { window: 'all', harness: '', speed_tier: '' }
+    filters: { window: 'all', harness: '', speed_tier: '', pinned: [] },
   },
   'mtp_speculative': {
-    name: '🚀 Speculative MTP & Latency',
+    name: 'Speculative MTP & Latency',
+    icon: '\uD83D\uDE80',
     layout: [
-      { id: 'speculative-burst', col: 6 },
-      { id: 'decode-acceleration', col: 6 },
-      { id: 'apc-cache', col: 6 },
-      { id: 'ttft-latency', col: 6 },
-      { id: 'telemetry-table', col: 12 },
+      { id: 'speculative-burst', cols: 6, rows: 5 },
+      { id: 'decode-acceleration', cols: 6, rows: 5 },
+      { id: 'apc-cache', cols: 6, rows: 4 },
+      { id: 'ttft-latency', cols: 6, rows: 4 },
+      { id: 'telemetry-table', cols: 12, rows: 8 },
     ],
-    filter: { window: 'all', harness: '', speed_tier: '60+' }
+    filters: { window: 'all', harness: '', speed_tier: 'turbo', pinned: ['speed_tier'] },
   },
   'token_economics': {
-    name: '📊 Token Economics & Tools',
+    name: 'Token Economics & Tools',
+    icon: '\uD83D\uDCCA',
     layout: [
-      { id: 'kpi-banner', col: 12 },
-      { id: 'token-volume', col: 6 },
-      { id: 'model-share', col: 6 },
-      { id: 'tool-usage', col: 6 },
-      { id: 'speed-distribution', col: 6 },
+      { id: 'kpi-banner', cols: 12, rows: 3 },
+      { id: 'token-volume', cols: 6, rows: 5 },
+      { id: 'model-share', cols: 6, rows: 5 },
+      { id: 'tool-usage', cols: 6, rows: 4 },
+      { id: 'speed-distribution', cols: 6, rows: 4 },
     ],
-    filter: { window: 'all', harness: '', speed_tier: '' }
+    filters: { window: 'all', harness: '', speed_tier: '', pinned: [] },
   },
   'realtime_monitor': {
-    name: '⏱ Real-Time Monitor',
+    name: 'Real-Time Monitor',
+    icon: '\u23F1',
     layout: [
-      { id: 'live-pulse', col: 12 },
-      { id: 'telemetry-table', col: 12 },
-      { id: 'prefill-vs-decode', col: 6 },
-      { id: 'ttft-latency', col: 6 },
+      { id: 'live-pulse', cols: 12, rows: 4 },
+      { id: 'telemetry-table', cols: 12, rows: 8 },
+      { id: 'prefill-vs-decode', cols: 6, rows: 4 },
+      { id: 'ttft-latency', cols: 6, rows: 4 },
     ],
-    filter: { window: '1h', harness: '', speed_tier: '' }
-  }
+    filters: { window: '1h', harness: '', speed_tier: '', pinned: ['window'] },
+  },
 };
 
 // Formatting Utilities
@@ -119,6 +128,46 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// ============================================================
+// PANEL ARCHETYPES
+// A panel declares size intent rather than a raw pixel height. Rows snap to a
+// fixed grid track, so two panels on the same band align by construction -
+// the free-form min-height they used before is what produced ragged rows.
+// ============================================================
+const PANEL_ARCHETYPES = {
+  'kpi-strip':   { cols: 12, rows: 3,  minCols: 6, maxCols: 12, minRows: 3, maxRows: 5 },
+  'stat':        { cols: 3,  rows: 3,  minCols: 2, maxCols: 6,  minRows: 2, maxRows: 4 },
+  'line-chart':  { cols: 8,  rows: 5,  minCols: 4, maxCols: 12, minRows: 4, maxRows: 10 },
+  'bar-list':    { cols: 4,  rows: 4,  minCols: 3, maxCols: 8,  minRows: 3, maxRows: 8 },
+  'table':       { cols: 12, rows: 8,  minCols: 6, maxCols: 12, minRows: 5, maxRows: 14 },
+  'status-grid': { cols: 6,  rows: 4,  minCols: 4, maxCols: 12, minRows: 3, maxRows: 6 },
+  'explorer':    { cols: 12, rows: 10, minCols: 8, maxCols: 12, minRows: 6, maxRows: 16 },
+};
+
+const PANEL_ARCHETYPE_BY_ID = {
+  'kpi-banner': 'kpi-strip',
+  'tps-trend': 'line-chart',
+  'token-volume': 'line-chart',
+  'telemetry-table': 'table',
+  'sessions-explorer': 'explorer',
+  'speed-distribution': 'bar-list',
+  'model-share': 'bar-list',
+  'tool-usage': 'bar-list',
+  'top-workspaces': 'bar-list',
+  'duration-distribution': 'bar-list',
+  'decode-acceleration': 'bar-list',
+  'speculative-burst': 'bar-list',
+  'ttft-latency': 'bar-list',
+  'live-pulse': 'status-grid',
+  'apc-cache': 'status-grid',
+  'prefill-vs-decode': 'status-grid',
+};
+
+function archetypeLimits(panelId) {
+  const key = PANEL_ARCHETYPE_BY_ID[panelId];
+  return PANEL_ARCHETYPES[key] || PANEL_ARCHETYPES['bar-list'];
 }
 
 // ============================================================
@@ -272,147 +321,323 @@ const PANEL_REGISTRY = {
 };
 
 // ============================================================
-// DASHBOARD LAYOUT, VIEWS & DISPATCH-STYLE CUSTOMIZATION
+// DASHBOARD LIFECYCLE
+// A dashboard is a named, saved arrangement of panels. Editing writes to a
+// single draft slot attached to a dashboard id; the saved record is only
+// touched on Save. Previously every mutation wrote a global layout key while
+// Save wrote elsewhere, so switching dashboards destroyed unsaved work.
 // ============================================================
-function getSavedViews() {
-  try {
-    const raw = localStorage.getItem('token_telemetry_saved_views');
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    return {};
+
+function ws() {
+  return state.workspace;
+}
+
+function persistWorkspace() {
+  const res = saveWorkspace(null, state.workspace);
+  if (!res.ok && !state.storageWarned) {
+    state.storageWarned = true;
+    showToast('Settings cannot be saved in this browser session');
   }
+  return res.ok;
 }
 
-function saveSavedViews(views) {
-  try {
-    localStorage.setItem('token_telemetry_saved_views', JSON.stringify(views));
-  } catch (e) {}
+function activeDashboard() {
+  return resolveDashboard(ws(), ws().activeDashboardId, BUILTIN_DASHBOARDS);
 }
 
-function populateViewSelect() {
-  const sel = document.getElementById('dashboardViewSelect');
-  if (!sel) return;
+function dashboardIsDirty() {
+  return isDirty(ws(), ws().activeDashboardId);
+}
 
-  const customViews = getSavedViews();
-  let html = '';
+// Called by every layout mutation. Writes the draft, never the record.
+function commitLayoutEdit() {
+  writeDraft(ws(), ws().activeDashboardId, state.layout, state.activeFilter);
+  persistWorkspace();
+  renderDashboardChrome();
+}
 
-  // Preset Views
-  Object.entries(PRESET_VIEWS).forEach(([id, v]) => {
-    html += `<option value="${id}">${escapeHtml(v.name)}</option>`;
-  });
+function renderDashboardChrome() {
+  const d = activeDashboard();
+  const nameEl = document.getElementById('dashSwitcherName');
+  if (nameEl && d) nameEl.textContent = d.name;
 
-  // Custom User Views
-  if (Object.keys(customViews).length > 0) {
-    html += `<optgroup label="Custom Views">`;
-    Object.entries(customViews).forEach(([id, v]) => {
-      html += `<option value="${id}">${escapeHtml(v.name)}</option>`;
-    });
-    html += `</optgroup>`;
+  const badge = document.getElementById('dashSwitcherBadge');
+  if (badge) badge.hidden = !(d && d.source === 'builtin');
+
+  const dirty = dashboardIsDirty();
+  const dot = document.getElementById('dashDirty');
+  if (dot) dot.hidden = !dirty;
+  const save = document.getElementById('dashSave');
+  if (save) save.hidden = !dirty;
+
+  document.querySelector('.app-shell')?.classList.toggle('is-dirty', dirty);
+}
+
+function openDashboard(id, opts = {}) {
+  const w = ws();
+  if (!resolveDashboard(w, id, BUILTIN_DASHBOARDS)) return;
+
+  // Switching away from unsaved work must be a decision, not a silent loss.
+  if (!opts.force && w.draft && w.draft.dashboardId !== id) {
+    const keep = confirm(
+      'This dashboard has unsaved changes.\n\n' +
+      'OK  \u2013 save them and switch\n' +
+      'Cancel \u2013 discard them and switch'
+    );
+    if (keep) commitDraft(w, BUILTIN_DASHBOARDS);
+    else discardDraft(w);
   }
 
-  sel.innerHTML = html;
-  sel.value = state.activeViewId || 'default';
-}
+  w.activeDashboardId = id;
+  const d = resolveDashboard(w, id, BUILTIN_DASHBOARDS);
+  const draft = (w.draft && w.draft.dashboardId === id) ? w.draft : null;
+  state.layout = JSON.parse(JSON.stringify((draft ? draft.layout : d.layout) || []));
 
-function switchDashboardView(viewId) {
-  state.activeViewId = viewId;
-  const customViews = getSavedViews();
-  const view = customViews[viewId] || PRESET_VIEWS[viewId] || PRESET_VIEWS['default'];
+  // Only the filters a dashboard pins are applied, so opening one does not
+  // silently rewrite app-wide chrome the user did not ask it to touch.
+  const f = d.filters || {};
+  const pinned = f.pinned || [];
+  if (pinned.includes('window') && f.window) setTimeWindow(f.window, false);
+  if (pinned.includes('harness')) selectDataSource(f.harness || '', false);
+  if (pinned.includes('speed_tier')) {
+    document.querySelectorAll('.explorer-filter-speed').forEach(el => { el.value = f.speed_tier || ''; });
+    state.activeFilter.speed_tier = f.speed_tier || '';
+  }
 
-  state.layout = JSON.parse(JSON.stringify(view.layout));
-  saveDashboardLayout();
+  persistWorkspace();
   renderDashboard();
+  renderDashboardChrome();
+  renderDashboardMenu();
 
-  if (view.filter) {
-    if (view.filter.window) setTimeWindow(view.filter.window, false);
-    if (view.filter.harness !== undefined) selectDataSource(view.filter.harness, false);
-    if (view.filter.speed_tier !== undefined) {
-      const el = document.getElementById('filterSpeedTier');
-      if (el) el.value = view.filter.speed_tier;
-      state.activeFilter.speed_tier = view.filter.speed_tier;
-    }
-    fetchStats();
-    fetchSessions();
-  }
+  // All three, so charts cannot disagree with the KPI banner after a switch.
+  fetchStats();
+  fetchSessions();
+  fetchTimeseries();
+  announce(`Opened dashboard ${d.name}`);
 }
 
-function saveCurrentView() {
-  const viewId = state.activeViewId || 'default';
-  const customViews = getSavedViews();
-  const viewName = (customViews[viewId] || PRESET_VIEWS[viewId] || {}).name || viewId;
-
-  customViews[viewId] = {
-    name: viewName,
-    layout: JSON.parse(JSON.stringify(state.layout)),
-    filter: {
-      window: state.activeFilter.window || 'all',
-      harness: state.activeFilter.harness || '',
-      speed_tier: state.activeFilter.speed_tier || '',
-    },
-    updated_at: new Date().toISOString()
-  };
-  saveSavedViews(customViews);
-  showToast(`View "${viewName}" saved`);
+function saveActiveDashboard() {
+  const res = commitDraft(ws(), BUILTIN_DASHBOARDS);
+  if (!res.ok) return;
+  persistWorkspace();
+  renderDashboardChrome();
+  renderDashboardMenu();
+  showToast('Dashboard saved');
 }
 
-function createNewViewPrompt() {
-  const name = prompt("Enter a name for this custom view:");
+function discardDashboardChanges() {
+  discardDraft(ws());
+  persistWorkspace();
+  openDashboard(ws().activeDashboardId, { force: true });
+  showToast('Changes discarded');
+}
+
+function createDashboardPrompt() {
+  const name = prompt('Name for the new dashboard:');
   if (!name || !name.trim()) return;
-  const viewId = 'view_' + Date.now();
-  const customViews = getSavedViews();
-  customViews[viewId] = {
-    name: name.trim(),
-    layout: JSON.parse(JSON.stringify(state.layout)),
-    filter: {
-      window: state.activeFilter.window || 'all',
-      harness: state.activeFilter.harness || '',
-      speed_tier: state.activeFilter.speed_tier || '',
-    },
-    created_at: new Date().toISOString()
+  const id = createDashboard(ws(), BUILTIN_DASHBOARDS, name, state.layout, state.activeFilter);
+  persistWorkspace();
+  closeDashMenu();
+  openDashboard(id, { force: true });
+  showToast(`Created "${ws().dashboards[id].name}"`);
+}
+
+function duplicateActiveDashboard(id) {
+  const src = id || ws().activeDashboardId;
+  const draft = (ws().draft && ws().draft.dashboardId === src) ? ws().draft.layout : null;
+  const newId = duplicateDashboard(ws(), BUILTIN_DASHBOARDS, src, draft);
+  if (!newId) return;
+  persistWorkspace();
+  closeDashMenu();
+  openDashboard(newId, { force: true });
+  showToast(`Duplicated as "${ws().dashboards[newId].name}"`);
+}
+
+function renameDashboardPrompt(id) {
+  const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
+  if (!d) return;
+  if (d.source === 'builtin') {
+    showToast('Built-in dashboards cannot be renamed \u2013 duplicate it first');
+    return;
+  }
+  const name = prompt('Rename dashboard:', d.name);
+  if (!name || !name.trim()) return;
+  renameDashboard(ws(), BUILTIN_DASHBOARDS, id, name);
+  persistWorkspace();
+  renderDashboardChrome();
+  renderDashboardMenu();
+}
+
+function deleteDashboardConfirm(id) {
+  const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
+  if (!d) return;
+  if (!confirm(`Delete "${d.name}"? This cannot be undone.`)) return;
+  const res = deleteDashboard(ws(), BUILTIN_DASHBOARDS, id);
+  if (!res.ok) {
+    showToast('Built-in dashboards cannot be deleted');
+    return;
+  }
+  persistWorkspace();
+  closeDashMenu();
+  openDashboard(ws().activeDashboardId, { force: true });
+  showToast(`Deleted "${d.name}"`);
+}
+
+function makeDashboardDefault(id) {
+  setDefaultDashboard(ws(), BUILTIN_DASHBOARDS, id);
+  persistWorkspace();
+  renderDashboardMenu();
+  const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
+  showToast(`"${d.name}" opens on launch`);
+}
+
+function resetDefaultPointer() {
+  setDefaultDashboard(ws(), BUILTIN_DASHBOARDS, 'default');
+  persistWorkspace();
+  renderDashboardMenu();
+  showToast('Default reset to Default Overview');
+}
+
+// Reset a built-in's CONTENTS to factory. Distinct from resetting which
+// dashboard opens on launch, which is resetDefaultPointer above.
+function resetDashboardToOriginal(id) {
+  const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
+  if (!d || d.source !== 'builtin') {
+    showToast('Only built-in dashboards can be reset to original');
+    return;
+  }
+  if (!confirm(`Reset "${d.name}" to its original panels?`)) return;
+  resetBuiltin(ws(), BUILTIN_DASHBOARDS, id);
+  persistWorkspace();
+  closeDashMenu();
+  openDashboard(id, { force: true });
+  showToast(`"${d.name}" reset to original`);
+}
+
+/* ---------- Dashboard menu ---------- */
+
+function renderDashboardMenu() {
+  const menu = document.getElementById('dashMenu');
+  if (!menu) return;
+  const w = ws();
+  const activeId = w.activeDashboardId;
+
+  const row = (d) => {
+    const isActive = d.id === activeId;
+    const isDefault = d.id === w.defaultDashboardId;
+    return `
+      <div class="dash-menu__row">
+        <button class="dash-menu__item" type="button" role="menuitemradio"
+                aria-checked="${isActive}" onclick="openDashboard('${d.id}'); closeDashMenu();">
+          <span class="dash-menu__check" aria-hidden="true">${isActive ? '\u2713' : ''}</span>
+          <span class="dash-menu__icon" aria-hidden="true">${d.icon || ''}</span>
+          <span class="dash-menu__label">${escapeHtml(d.name)}</span>
+          <span class="dash-menu__meta mono">${(d.layout || []).length}</span>
+          ${isDefault ? '<span class="dash-menu__pin" title="Opens on launch">\u2605</span>' : ''}
+        </button>
+        <button class="dash-menu__more" type="button" aria-haspopup="menu"
+                aria-label="Actions for ${escapeHtml(d.name)}"
+                onclick="toggleDashSubmenu(event, '${d.id}')">\u22EF</button>
+        <div class="dash-submenu" id="dashSub-${d.id}" role="menu" hidden>
+          <button role="menuitem" type="button" onclick="duplicateActiveDashboard('${d.id}')">Duplicate</button>
+          <button role="menuitem" type="button" onclick="makeDashboardDefault('${d.id}')">Set as default</button>
+          ${d.source === 'builtin'
+            ? `<button role="menuitem" type="button" onclick="resetDashboardToOriginal('${d.id}')">Reset to original</button>`
+            : `<button role="menuitem" type="button" onclick="renameDashboardPrompt('${d.id}')">Rename\u2026</button>
+               <button role="menuitem" type="button" class="is-danger" onclick="deleteDashboardConfirm('${d.id}')">Delete</button>`}
+        </div>
+      </div>
+    `;
   };
-  saveSavedViews(customViews);
-  populateViewSelect();
-  const sel = document.getElementById('dashboardViewSelect');
-  if (sel) sel.value = viewId;
-  switchDashboardView(viewId);
-  showToast(`Created custom view "${name.trim()}"`);
+
+  const builtins = Object.keys(BUILTIN_DASHBOARDS).map(id => resolveDashboard(w, id, BUILTIN_DASHBOARDS));
+  const mine = Object.values(w.dashboards || {});
+
+  menu.innerHTML = `
+    <div class="dash-menu__group" role="group" aria-label="Built-in dashboards">
+      <p class="dash-menu__title">Built-in</p>
+      ${builtins.map(row).join('')}
+    </div>
+    ${mine.length ? `
+      <div class="dash-menu__group" role="group" aria-label="My dashboards">
+        <p class="dash-menu__title">My dashboards</p>
+        ${mine.map(row).join('')}
+      </div>` : ''}
+    <hr class="dash-menu__sep" role="separator">
+    <button class="dash-menu__item dash-menu__item--action" type="button" role="menuitem"
+            onclick="createDashboardPrompt()">
+      <span class="dash-menu__check" aria-hidden="true">+</span>
+      <span class="dash-menu__label">New dashboard\u2026</span>
+    </button>
+    <button class="dash-menu__item dash-menu__item--action" type="button" role="menuitem"
+            onclick="resetDefaultPointer(); closeDashMenu();">
+      <span class="dash-menu__check" aria-hidden="true">\u21BA</span>
+      <span class="dash-menu__label">Reset which dashboard opens on launch</span>
+    </button>
+  `;
 }
 
-function loadDashboardLayout() {
-  try {
-    const raw = localStorage.getItem('token_telemetry_layout');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        state.layout = parsed.filter(item => PANEL_REGISTRY[item.id]);
-        return;
-      }
-    }
-  } catch (err) {
-    console.warn('Error loading saved layout:', err);
-  }
-  state.layout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+function toggleDashMenu(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById('dashMenu');
+  const trigger = document.getElementById('dashSwitcher');
+  if (!menu) return;
+  const open = menu.hidden;
+  if (open) renderDashboardMenu();
+  menu.hidden = !open;
+  if (trigger) trigger.setAttribute('aria-expanded', String(open));
 }
 
-function saveDashboardLayout() {
-  try {
-    localStorage.setItem('token_telemetry_layout', JSON.stringify(state.layout));
-  } catch (err) {
-    console.error('Failed to save layout:', err);
+function closeDashMenu() {
+  const menu = document.getElementById('dashMenu');
+  if (menu) menu.hidden = true;
+  const trigger = document.getElementById('dashSwitcher');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  document.querySelectorAll('.dash-submenu').forEach(el => { el.hidden = true; });
+}
+
+function toggleDashSubmenu(ev, id) {
+  ev.stopPropagation();
+  const el = document.getElementById('dashSub-' + id);
+  const wasHidden = el && el.hidden;
+  document.querySelectorAll('.dash-submenu').forEach(s => { s.hidden = true; });
+  if (el) el.hidden = !wasHidden;
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.topbar-lead')) closeDashMenu();
+  if (!e.target.closest('.topbar-center')) {
+    const rp = document.getElementById('rangePop');
+    if (rp) rp.hidden = true;
   }
+});
+
+function toggleRangePopover(ev) {
+  if (ev) ev.stopPropagation();
+  const rp = document.getElementById('rangePop');
+  if (rp) rp.hidden = !rp.hidden;
+}
+
+// One live region for the whole app; showToast mirrors into it.
+function announce(msg) {
+  const el = document.getElementById('a11yStatus');
+  if (el) el.textContent = msg;
 }
 
 function resetDashboardLayout() {
-  state.layout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
-  saveDashboardLayout();
-  renderDashboard();
-  renderGallery();
-  showToast('Dashboard layout reset to default');
+  const id = ws().activeDashboardId;
+  const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
+  if (d && d.source === 'builtin') {
+    resetDashboardToOriginal(id);
+  } else {
+    discardDashboardChanges();
+  }
 }
+
 
 function removePanel(panelId) {
   state.layout = state.layout.filter(p => p.id !== panelId);
-  saveDashboardLayout();
+  commitLayoutEdit();
   renderDashboard();
   renderGallery();
 }
@@ -422,7 +647,7 @@ function addPanel(panelId) {
   if (state.layout.some(p => p.id === panelId)) return;
   const def = PANEL_REGISTRY[panelId];
   state.layout.push({ id: panelId, col: def.defaultCol || 6 });
-  saveDashboardLayout();
+  commitLayoutEdit();
   renderDashboard();
   renderGallery();
 }
@@ -431,13 +656,13 @@ function togglePanelExpand(panelId) {
   const item = state.layout.find(p => p.id === panelId);
   if (!item) return;
 
-  if (item.col === 12) {
-    item.col = item._prevCol || 6;
+  if (item.cols === 12) {
+    item.cols = item._prevCols || 6;
   } else {
-    item._prevCol = item.col;
-    item.col = 12;
+    item._prevCols = item.cols;
+    item.cols = 12;
   }
-  saveDashboardLayout();
+  commitLayoutEdit();
   renderDashboard();
 }
 
@@ -484,9 +709,9 @@ function onPanelResizeMove(e) {
   const rawCol = Math.round((resizeState.startW + dx) / resizeState.colWidth);
   const newCol = Math.max(1, Math.min(12, rawCol));
 
-  if (newCol !== resizeState.item.col) {
-    resizeState.item.col = newCol;
-    resizeState.panelEl.className = resizeState.panelEl.className.replace(/col-span-\d+/, 'col-span-' + newCol);
+  if (newCol !== resizeState.item.cols) {
+    resizeState.item.cols = newCol;
+    resizeState.panelEl.style.setProperty('--panel-cols', newCol);
     const badge = document.getElementById('col-badge-' + resizeState.panelId);
     if (badge) badge.textContent = newCol + '/12 Col';
   }
@@ -503,7 +728,7 @@ function onPanelResizeEnd() {
   window.removeEventListener('mouseup', onPanelResizeEnd);
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
-  saveDashboardLayout();
+  commitLayoutEdit();
   resizeState = null;
   window.dispatchEvent(new Event('resize'));
 }
@@ -552,11 +777,12 @@ function onPanelDragStart(e, panelId) {
 
   // Create ghost preview placeholder matching column span
   const item = state.layout.find(p => p.id === panelId);
-  const colSpan = item ? (item.col || 6) : 6;
+  const colSpan = item ? (item.cols || 6) : 6;
   if (!dragPlaceholder) {
     dragPlaceholder = document.createElement('div');
   }
-  dragPlaceholder.className = `drag-placeholder col-span-${colSpan}`;
+  dragPlaceholder.className = 'drag-placeholder';
+  dragPlaceholder.style.setProperty('--panel-cols', colSpan);
   dragPlaceholder.style.minHeight = (panelEl ? panelEl.offsetHeight : 220) + 'px';
 }
 
@@ -634,7 +860,7 @@ function initDragReorder() {
     });
 
     state.layout = newLayout;
-    saveDashboardLayout();
+    commitLayoutEdit();
 
     document.querySelectorAll('.dashboard-panel').forEach(p => {
       p.classList.remove('is-dragging');
@@ -734,19 +960,32 @@ function renderDashboard() {
   let html = '';
   state.layout.forEach(item => {
     const def = PANEL_REGISTRY[item.id];
-    if (!def) return;
 
-    const colClass = 'col-span-' + (item.col || 6);
-    const styleAttr = item.height ? `style="min-height:${item.height}px;"` : '';
+    // An unknown panel id is kept and surfaced, never silently dropped, so a
+    // panel that disappears in one release and returns in the next survives.
+    if (!def) {
+      html += `
+        <div class="dashboard-panel is-unavailable" id="panel-${item.id}"
+             style="--panel-cols:${item.cols || 6};--panel-rows:${item.rows || 3};">
+          <div class="panel-state panel-state--empty" data-tone="neutral">
+            <p class="panel-state__title">Panel unavailable</p>
+            <p class="panel-state__body">"${escapeHtml(item.id)}" is not available in this version.</p>
+            <button class="btn btn--ghost btn--sm" type="button" onclick="removePanel('${item.id}')">Remove</button>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const styleAttr = `style="--panel-cols:${item.cols || def.defaultCol || 6};--panel-rows:${item.rows || 4};"`;
 
     html += `
-      <div class="dashboard-panel ${colClass}" id="panel-${item.id}" ${styleAttr}>
+      <div class="dashboard-panel" id="panel-${item.id}" ${styleAttr}>
         <div class="panel-header">
           <div class="panel-title-wrap">
             <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">⠿</span>
             <span class="panel-icon">${def.icon}</span>
             <span>${escapeHtml(def.title)}</span>
-            <span class="panel-col-badge mono" id="col-badge-${item.id}">${item.col || 6}/12 Col</span>
+            <span class="panel-col-badge mono" id="col-badge-${item.id}">${item.cols || 6}\u00d7${item.rows || 4}</span>
           </div>
           <div class="panel-actions">
             <button class="panel-expand-btn" onclick="togglePanelExpand('${item.id}')" title="Toggle Full Width / Restore Width">⤢</button>
@@ -1983,7 +2222,7 @@ function showServerPanel(serverId) {
   const online = !!live[serverId]?.online;
   const labels = { mlx: 'MLX LM (:8080)', ollama: 'Ollama (:11434)', openclaw: `OpenClaw gateway (:${det.port || 18789})` };
 
-  switchNavTab('dashboard');
+  navigateTo('observatory');
   const panel = document.getElementById('panel-live-pulse');
   if (panel) {
     panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1995,6 +2234,7 @@ function showServerPanel(serverId) {
 }
 
 function showToast(msg) {
+  announce(msg);
   let toast = document.getElementById('toastNotification');
   if (!toast) {
     toast = document.createElement('div');
@@ -2320,31 +2560,100 @@ function bindExplorerWidgetEvents(container) {
 }
 
 // ============================================================
-// NAVIGATION & TABS
+// PAGES
+// Adding a page is one registry entry: no router edit, no markup edit, no
+// toolbar edit. A page declares which top-bar controls apply to it, so
+// dashboard-only chrome cannot leak onto an unrelated page.
 // ============================================================
-function switchNavTab(tab) {
-  state.activeTab = tab;
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach(el => {
-    el.classList.toggle('active', el.id === (tab === 'dashboard' ? 'navItemDashboard' : 'navItemSessions'));
-  });
 
-  const viewDashboard = document.getElementById('viewDashboard');
-  const viewSessions = document.getElementById('viewSessions');
+registerPage({
+  id: 'observatory',
+  title: 'Dashboards',
+  icon: '\u26A1',
+  navSection: 'main',
+  toolbar: ['dashboardPicker', 'timeWindow', 'editLayout', 'addPanel', 'export'],
+  mount(el) {
+    el.innerHTML = `
+      <div class="edit-layout-banner" id="editLayoutBanner" style="display:none;">
+        <div class="banner-text">
+          <span aria-hidden="true">\u270F\uFE0F</span>
+          <span><strong>Editing this dashboard:</strong> drag a panel by its header to reorder, or drag the bottom-right corner to resize.</span>
+        </div>
+        <div class="banner-actions">
+          <button class="btn btn--ghost btn--sm" type="button" onclick="resetDashboardLayout()">\u21BA Reset</button>
+          <button class="btn btn--accent btn--sm" type="button" onclick="toggleEditLayout()">\u2713 Done</button>
+        </div>
+      </div>
+      <div class="dashboard-grid" id="dashboardGrid"></div>
+    `;
+    initDragReorder();
+  },
+  refresh() {
+    renderDashboard();
+    renderDashboardChrome();
+  },
+});
 
-  if (tab === 'dashboard') {
-    if (viewDashboard) viewDashboard.classList.add('active');
-    if (viewSessions) viewSessions.classList.remove('active');
-  } else if (tab === 'sessions') {
-    if (viewDashboard) viewDashboard.classList.remove('active');
-    if (viewSessions) viewSessions.classList.add('active');
-    const container = document.getElementById('sessionsFullViewContainer');
-    if (container && !container._rendered) {
-      container._rendered = true;
-      renderSessionsExplorerWidget(container, state, { col: 12, height: 800 });
-    }
+registerPage({
+  id: 'sessions',
+  title: 'Sessions',
+  icon: '\uD83D\uDCAC',
+  navSection: 'main',
+  toolbar: ['timeWindow', 'export'],
+  mount(el) {
+    el.innerHTML = '<div class="sessions-full-view" id="sessionsFullViewContainer"></div>';
+    const c = document.getElementById('sessionsFullViewContainer');
+    if (c) renderSessionsExplorerWidget(c, state, { cols: 12, rows: 12 });
+  },
+  refresh() {
+    const c = document.getElementById('sessionsFullViewContainer');
+    if (c) renderSessionsExplorerWidget(c, state, { cols: 12, rows: 12 });
     fetchSessions();
-  }
+  },
+});
+
+registerPage({
+  id: 'settings',
+  title: 'Settings & Theme',
+  icon: '\u2699\uFE0F',
+  navSection: 'foot',
+  toolbar: [],
+  mount(el) {
+    const tpl = document.getElementById('tplSettings');
+    if (tpl) el.appendChild(tpl.content.cloneNode(true));
+  },
+  refresh() {
+    // Re-sync from state rather than relying on a click handler having run.
+    document.querySelectorAll('.theme-card').forEach(card => {
+      card.classList.toggle('active', card.getAttribute('data-theme') === state.theme);
+    });
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.id === 'btnMode' + (state.mode || 'dark').charAt(0).toUpperCase() + (state.mode || 'dark').slice(1));
+    });
+    renderSystemInfo();
+  },
+});
+
+// Kept so the 47 inline handlers in index.html keep working during the
+// transition; both now route to the settings page.
+function toggleMode() {
+  applyMode((state.mode === 'light') ? 'dark' : 'light');
 }
+
+function updateModeToggle() {
+  const btn = document.getElementById('modeToggle');
+  const label = document.getElementById('modeToggleLabel');
+  if (!btn) return;
+  const isLight = document.documentElement.getAttribute('data-mode') === 'light';
+  btn.setAttribute('aria-pressed', String(isLight));
+  btn.setAttribute('aria-label', isLight ? 'Switch to dark mode' : 'Switch to light mode');
+  if (label) label.textContent = isLight ? 'Light mode' : 'Dark mode';
+  const icon = btn.querySelector('.mode-toggle__icon');
+  if (icon) icon.textContent = isLight ? '\u2600' : '\u263D';
+}
+
+function openSettingsModal() { navigateTo('settings'); }
+function closeSettingsModal() {}
 
 // ============================================================
 // THEME & APPEARANCE SYSTEM (SUBTLE SLATE DEFAULT)
@@ -2359,9 +2668,10 @@ const THEME_NAMES = {
 function applyTheme(themeName) {
   state.theme = themeName;
   document.documentElement.setAttribute('data-theme', themeName);
-  try {
-    localStorage.setItem('token_telemetry_theme', themeName);
-  } catch (e) {}
+  if (state.workspace) {
+    state.workspace.prefs.theme = themeName;
+    saveWorkspace(null, state.workspace);
+  }
 
   document.querySelectorAll('.theme-card').forEach(card => {
     card.classList.toggle('active', card.getAttribute('data-theme') === themeName);
@@ -2372,14 +2682,15 @@ function applyTheme(themeName) {
     themeLabel.textContent = 'Theme: ' + (THEME_NAMES[themeName] || themeName);
   }
 
-  renderDashboard();
+  refreshActivePage();
 }
 
 function applyMode(mode) {
   state.mode = mode;
-  try {
-    localStorage.setItem('token_telemetry_mode', mode);
-  } catch (e) {}
+  if (state.workspace) {
+    state.workspace.prefs.mode = mode;
+    saveWorkspace(null, state.workspace);
+  }
 
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.classList.toggle('active', btn.id === ('btnMode' + mode.charAt(0).toUpperCase() + mode.slice(1)));
@@ -2392,7 +2703,8 @@ function applyMode(mode) {
   }
   document.documentElement.setAttribute('data-mode', effectiveMode);
 
-  renderDashboard();
+  updateModeToggle();
+  refreshActivePage();
 }
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -2444,9 +2756,9 @@ function closeSettingsModal() {
 
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    closeDashMenu();
     closePanelGallery();
     closeSessionDetail();
-    closeSettingsModal();
   }
 });
 
@@ -2454,27 +2766,30 @@ window.addEventListener('keydown', e => {
 // INITIALIZATION ON DOM READY
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
-  // 1. Initialize Theme & Mode (Subtle Slate Default)
-  let savedTheme = 'subtle';
-  let savedMode = 'dark';
-  try {
-    savedTheme = localStorage.getItem('token_telemetry_theme') || 'subtle';
-    savedMode = localStorage.getItem('token_telemetry_mode') || 'dark';
-  } catch (e) {}
-  applyTheme(savedTheme);
-  applyMode(savedMode);
+  // 1. Workspace first: it carries prefs, dashboards and any rescued draft.
+  state.workspace = loadWorkspace(null, BUILTIN_DASHBOARDS, PANEL_REGISTRY, archetypeLimits);
 
-  // 2. Load Dashboard Layout & Views
-  loadDashboardLayout();
-  populateViewSelect();
-  initDragReorder();
+  applyTheme(state.workspace.prefs.theme || 'subtle');
+  applyMode(state.workspace.prefs.mode || 'dark');
 
-  // 3. Fetch Initial Telemetry Datasets
+  // 2. Open the dashboard that should be showing, without prompting on boot.
+  const bootId = state.workspace.activeDashboardId || state.workspace.defaultDashboardId || 'default';
+  state.workspace.activeDashboardId = bootId;
+  const d = resolveDashboard(state.workspace, bootId, BUILTIN_DASHBOARDS);
+  const draft = (state.workspace.draft && state.workspace.draft.dashboardId === bootId)
+    ? state.workspace.draft : null;
+  state.layout = JSON.parse(JSON.stringify((draft ? draft.layout : (d && d.layout)) || []));
+
+  // 3. Route. An empty hash falls back to the last page, then to Observatory.
+  applyRoute();
+  renderDashboardChrome();
+  renderDashboardMenu();
+
+  // 4. Data.
   fetchStats();
   fetchTimeseries();
   fetchSessions();
   fetchLiveStatus();
-
-  // 4. Live Engine Polling
   setInterval(fetchLiveStatus, 3500);
 });
+
