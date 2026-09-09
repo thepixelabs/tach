@@ -11,6 +11,8 @@ import sqlite3
 import time
 from datetime import datetime
 import urllib.request
+import urllib.error
+import socket
 import argparse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -70,22 +72,93 @@ def resolve_opencode_db(cli_path=None):
     return home / ".local" / "share" / "opencode" / "opencode.db"
 
 
-def resolve_openclaw_db(cli_path=None):
-    """Resolves OpenClaw state database if present on the system."""
+def resolve_openclaw_homes(cli_paths=None):
+    """
+    Discovers every OpenClaw home directory on this machine.
+
+    OpenClaw keeps its chat transcripts as JSONL under
+    <home>/agents/<agent>/sessions/, not in the gateway state database, and a
+    machine can hold several homes at once: the default ~/.openclaw, an
+    OPENCLAW_HOME override, and project-local ones next to a checkout.
+    """
+    homes = []
+
+    def add(candidate):
+        try:
+            path = Path(candidate).expanduser()
+        except Exception:
+            return
+        if path.is_dir() and path not in homes:
+            homes.append(path)
+
+    for cli_path in (cli_paths or []):
+        add(cli_path)
+
+    env_home = os.environ.get("OPENCLAW_HOME")
+    if env_home:
+        add(env_home)
+
+    home = Path.home()
+    add(home / ".openclaw")
+
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        add(Path(xdg_data) / "openclaw")
+
+    add(home / ".local" / "share" / "openclaw")
+    add(home / "Library" / "Application Support" / "openclaw")
+
+    appdata = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+    if appdata:
+        add(Path(appdata) / "openclaw")
+
+    # Project-local homes: the working directory and its siblings, the same
+    # sweep scan_aider_history() uses to find per-repo chat histories.
+    cwd = Path.cwd()
+    add(cwd / ".openclaw")
+    try:
+        for sub in list(cwd.parent.iterdir())[:40]:
+            if sub.is_dir():
+                add(sub / ".openclaw")
+    except Exception:
+        pass
+
+    return homes
+
+
+def resolve_openclaw_db(cli_path=None, homes=None):
+    """Resolves the OpenClaw gateway state database if present on the system."""
     if cli_path and os.path.exists(cli_path):
         return Path(cli_path)
     env_path = os.environ.get("OPENCLAW_DB")
     if env_path and os.path.exists(env_path):
         return Path(env_path)
-    home = Path.home()
-    candidates = [
-        home / ".openclaw" / "state" / "openclaw.sqlite",
-        home / ".openclaw" / "openclaw.sqlite",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
+    for home in (homes if homes is not None else resolve_openclaw_homes()):
+        for candidate in (home / "state" / "openclaw.sqlite", home / "openclaw.sqlite"):
+            if candidate.exists():
+                return candidate
     return None
+
+
+def resolve_openclaw_gateway():
+    """
+    Reads the gateway bind port out of the OpenClaw config so the health probe
+    targets the port this install actually listens on rather than the default.
+    """
+    port = 18789
+    for home in CONFIG.get("openclaw_homes", []):
+        cfg_file = home / "openclaw.json"
+        if not cfg_file.exists():
+            continue
+        try:
+            cfg = json.loads(cfg_file.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            continue
+        gw = cfg.get("gateway") or {}
+        if isinstance(gw.get("port"), int):
+            port = gw["port"]
+            break
+    return port
 
 
 def scan_aider_history():
@@ -119,9 +192,11 @@ def scan_continue_sessions():
 
 
 # Global active database path
+_OPENCLAW_HOMES = resolve_openclaw_homes()
 CONFIG = {
     "opencode_db": resolve_opencode_db(),
-    "openclaw_db": resolve_openclaw_db(),
+    "openclaw_homes": _OPENCLAW_HOMES,
+    "openclaw_db": resolve_openclaw_db(homes=_OPENCLAW_HOMES),
 }
 
 
@@ -138,6 +213,7 @@ def check_live_status():
         "mlx": {"online": False, "details": None, "requests": [], "apc": None, "summary": None},
         "ollama": {"online": False, "details": None},
         "llamacpp": {"online": False, "details": None},
+        "openclaw": {"online": False, "details": None},
     }
 
     # Check MLX Server (:8080)
@@ -230,7 +306,88 @@ def check_live_status():
     except Exception:
         pass
 
+    # Check the OpenClaw gateway (port from openclaw.json, default :18789).
+    # The gateway requires a bearer token, so a 401/403 still proves it is up;
+    # a raw TCP connect is the fallback when no HTTP route answers.
+    port = resolve_openclaw_gateway()
+    gw_online = False
+    gw_detail = None
+    for route in ("/health", "/healthz", "/status"):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}{route}", headers={"User-Agent": "Telemetry"}
+            )
+            with urllib.request.urlopen(req, timeout=1.0) as resp:
+                gw_online = True
+                try:
+                    gw_detail = json.loads(resp.read().decode())
+                except Exception:
+                    gw_detail = None
+                break
+        except urllib.error.HTTPError:
+            # Answered, but refused us - the gateway is listening.
+            gw_online = True
+            break
+        except Exception:
+            continue
+
+    if not gw_online:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.8):
+                gw_online = True
+        except Exception:
+            pass
+
+    status["openclaw"]["online"] = gw_online
+    detail = {
+        "port": port,
+        "homes": [sanitize_path(str(h)) for h in CONFIG.get("openclaw_homes", [])],
+        "sessions": len(scan_openclaw_session_files()),
+    }
+    if isinstance(gw_detail, dict):
+        detail["version"] = gw_detail.get("version") or gw_detail.get("gatewayVersion")
+        detail["uptime_s"] = gw_detail.get("uptime") or gw_detail.get("uptimeSeconds")
+    status["openclaw"]["details"] = detail
+
     return status
+
+
+def count_opencode_sessions():
+    conn = get_db_connection()
+    if not conn:
+        return 0
+    try:
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM session")
+        return c.fetchone()[0] or 0
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
+def get_harness_inventory():
+    """
+    Per-source session counts for the sidebar, always computed across every
+    harness regardless of the active filter.
+    """
+    opencode_n = count_opencode_sessions()
+    openclaw_n = len(get_openclaw_sessions())
+    aider_files = scan_aider_history()
+    continue_files = scan_continue_sessions()
+
+    return [
+        {"id": "all", "name": "All Harnesses", "detected": True,
+         "count": opencode_n + openclaw_n + len(aider_files) + len(continue_files)},
+        {"id": "opencode", "name": "OpenCode", "detected": True,
+         "path": sanitize_path(str(CONFIG["opencode_db"])), "count": opencode_n},
+        {"id": "openclaw", "name": "OpenClaw", "detected": len(CONFIG["openclaw_homes"]) > 0,
+         "path": sanitize_path(str(CONFIG["openclaw_homes"][0])) if CONFIG["openclaw_homes"] else None,
+         "count": openclaw_n},
+        {"id": "aider", "name": "Aider", "detected": len(aider_files) > 0, "count": len(aider_files)},
+        {"id": "continue", "name": "Continue", "detected": len(continue_files) > 0,
+         "count": len(continue_files)},
+    ]
 
 
 def get_all_stats(query_params=None):
@@ -344,17 +501,12 @@ def get_all_stats(query_params=None):
             "tps_buckets": {"< 15": 0, "15 - 30": 0, "30 - 45": 0, "45 - 60": 0, "60+": 0},
             "duration_buckets": {"< 1 min": 0, "1 - 5 mins": 0, "5 - 15 mins": 0, "15 - 30 mins": 0, "> 30 mins": 0},
             "directories": directories,
-            "harnesses": [
-                {"id": "all", "name": "All Harnesses", "detected": True, "count": tot_s},
-                {"id": "opencode", "name": "OpenCode", "detected": True, "count": 43},
-                {"id": "openclaw", "name": "OpenClaw", "detected": bool(CONFIG["openclaw_db"]), "count": len(get_openclaw_sessions())},
-                {"id": "aider", "name": "Aider", "detected": len(scan_aider_history()) > 0, "count": len(scan_aider_history())},
-                {"id": "continue", "name": "Continue", "detected": len(scan_continue_sessions()) > 0, "count": len(scan_continue_sessions())},
-            ],
+            "harnesses": get_harness_inventory(),
             "live": check_live_status(),
             "system_info": {
                 "opencode_db": sanitize_path(str(CONFIG["opencode_db"])),
                 "openclaw_db": sanitize_path(str(CONFIG["openclaw_db"])) if CONFIG["openclaw_db"] else None,
+                "openclaw_homes": [sanitize_path(str(h)) for h in CONFIG["openclaw_homes"]],
             }
         }
 
@@ -576,14 +728,63 @@ def get_all_stats(query_params=None):
 
     conn.close()
 
+    # Fold the non-OpenCode harnesses into the unified totals. The session list
+    # already merges them, so the headline numbers have to agree with it.
+    if not harness_filter or harness_filter == "all":
+        external = get_openclaw_sessions() + get_aider_sessions() + get_continue_sessions()
+        if start_ms:
+            external = [s for s in external if (s.get("time_created") or 0) >= start_ms]
+        if end_ms:
+            external = [s for s in external if (s.get("time_created") or 0) <= end_ms]
+
+        for s in external:
+            total_sessions += 1
+            total_messages += s.get("message_count") or 0
+            sum_in += s.get("tokens_input") or 0
+            sum_out += s.get("tokens_output") or 0
+            sum_reas += s.get("tokens_reasoning") or 0
+
+            # OpenCode names models "<provider>/<id>"; match that so the same
+            # model from two harnesses aggregates into one share.
+            model_name = s.get("model") or "unknown"
+            provider = s.get("provider")
+            if provider and "/" not in model_name:
+                model_name = f"{provider}/{model_name}"
+            existing = next((m for m in model_shares if m["name"] == model_name), None)
+            if existing:
+                existing["session_count"] += 1
+                existing["tokens_input"] += s.get("tokens_input") or 0
+                existing["tokens_output"] += s.get("tokens_output") or 0
+                existing["tokens_reasoning"] += s.get("tokens_reasoning") or 0
+                existing["total_tokens"] += s.get("tokens_total") or 0
+            else:
+                model_shares.append({
+                    "name": model_name,
+                    "session_count": 1,
+                    "tokens_input": s.get("tokens_input") or 0,
+                    "tokens_output": s.get("tokens_output") or 0,
+                    "tokens_reasoning": s.get("tokens_reasoning") or 0,
+                    "total_tokens": s.get("tokens_total") or 0,
+                })
+
+            folder = s.get("folder") or "root"
+            d_existing = next((d for d in directories if d["folder"] == folder), None)
+            if d_existing:
+                d_existing["count"] += 1
+                d_existing["tokens_output"] += s.get("tokens_output") or 0
+            else:
+                directories.append({
+                    "path": s.get("directory") or folder,
+                    "folder": folder,
+                    "count": 1,
+                    "tokens_output": s.get("tokens_output") or 0,
+                })
+
+        model_shares.sort(key=lambda m: m["session_count"], reverse=True)
+        directories.sort(key=lambda d: d["count"], reverse=True)
+
     # Discovered Harnesses
-    harnesses = [
-        {"id": "all", "name": "All Harnesses", "detected": True, "count": total_sessions},
-        {"id": "opencode", "name": "OpenCode", "detected": True, "path": sanitize_path(str(CONFIG["opencode_db"])), "count": total_sessions},
-        {"id": "openclaw", "name": "OpenClaw", "detected": bool(CONFIG["openclaw_db"]), "path": sanitize_path(str(CONFIG["openclaw_db"])) if CONFIG["openclaw_db"] else None, "count": 0},
-        {"id": "aider", "name": "Aider", "detected": len(scan_aider_history()) > 0, "count": len(scan_aider_history())},
-        {"id": "continue", "name": "Continue", "detected": len(scan_continue_sessions()) > 0, "count": len(scan_continue_sessions())},
-    ]
+    harnesses = get_harness_inventory()
 
     return {
         "total_sessions": total_sessions,
@@ -606,49 +807,401 @@ def get_all_stats(query_params=None):
         "system_info": {
             "opencode_db": sanitize_path(str(CONFIG["opencode_db"])),
             "openclaw_db": sanitize_path(str(CONFIG["openclaw_db"])) if CONFIG["openclaw_db"] else None,
+            "openclaw_homes": [sanitize_path(str(h)) for h in CONFIG["openclaw_homes"]],
         }
     }
 
 
-def get_openclaw_sessions():
+def scan_openclaw_session_files():
+    """
+    Every OpenClaw transcript on disk, across all discovered homes and agents.
+
+    Transcripts live at <home>/agents/<agent>/sessions/<uuid>.jsonl with a
+    sessions.json index alongside them holding per-scope metadata. The
+    <uuid>.trajectory.jsonl sidecars mirror the same turns and are skipped so
+    sessions are not counted twice.
+    """
+    found = []
+    seen = set()
+
+    for home in CONFIG.get("openclaw_homes", []):
+        agents_dir = home / "agents"
+        if not agents_dir.is_dir():
+            continue
+        try:
+            agent_dirs = sorted(d for d in agents_dir.iterdir() if d.is_dir())
+        except Exception:
+            continue
+
+        for agent_dir in agent_dirs:
+            sess_dir = agent_dir / "sessions"
+            if not sess_dir.is_dir():
+                continue
+
+            index = {}
+            idx_file = sess_dir / "sessions.json"
+            if idx_file.exists():
+                try:
+                    raw = json.loads(idx_file.read_text(encoding="utf-8", errors="ignore"))
+                    if isinstance(raw, dict):
+                        for scope_key, entry in raw.items():
+                            if isinstance(entry, dict) and entry.get("sessionId"):
+                                index[entry["sessionId"]] = dict(entry, scope_key=scope_key)
+                except Exception:
+                    pass
+
+            try:
+                files = sorted(sess_dir.glob("*.jsonl"))
+            except Exception:
+                continue
+
+            for f in files:
+                if f.name.endswith(".trajectory.jsonl"):
+                    continue
+                try:
+                    key = f.resolve()
+                except Exception:
+                    key = f
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append({
+                    "path": f,
+                    "home": home,
+                    "agent": agent_dir.name,
+                    "meta": index.get(f.stem, {}),
+                })
+
+    return found
+
+
+def _openclaw_text(content):
+    """Flattens an OpenClaw message content field (string or part list) to text."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    chunks = []
+    for part in content:
+        if isinstance(part, dict) and part.get("type") in ("text", "reasoning"):
+            chunks.append(str(part.get("text") or ""))
+    return "\n".join(c for c in chunks if c)
+
+
+def parse_openclaw_transcript(entry, want_messages=False):
+    """
+    Reads one OpenClaw JSONL transcript into the shape the dashboard uses.
+
+    Token accounting mirrors how the provider bills: `output` is additive per
+    turn, while `input` is the whole context resent each turn, so summing it
+    gives billed input rather than a single context size.
+    """
+    path = entry["path"]
+    meta = entry.get("meta") or {}
+
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return None
+
+    session_id = path.stem
+    cwd = None
+    provider = None
+    model_id = None
+    title = None
+
+    tokens_input = 0
+    tokens_output = 0
+    tokens_reasoning = 0
+    cost_total = 0.0
+    assistant_turns = 0
+    message_count = 0
+    has_tool_calls = False
+
+    first_ts = None
+    last_ts = None
+    messages = []
+
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+
+        ev_type = ev.get("type")
+
+        if ev_type == "session":
+            session_id = ev.get("id") or session_id
+            cwd = ev.get("cwd") or cwd
+            continue
+
+        if ev_type == "model_change":
+            provider = ev.get("provider") or provider
+            model_id = ev.get("modelId") or model_id
+            continue
+
+        if ev_type == "custom" and ev.get("customType") == "model-snapshot":
+            data = ev.get("data") or {}
+            provider = data.get("provider") or provider
+            model_id = data.get("modelId") or model_id
+            continue
+
+        if ev_type != "message":
+            continue
+
+        msg = ev.get("message") or {}
+        role = msg.get("role")
+        ts = msg.get("timestamp")
+        if not isinstance(ts, (int, float)):
+            ts = None
+        if ts:
+            first_ts = ts if first_ts is None else min(first_ts, ts)
+            last_ts = ts if last_ts is None else max(last_ts, ts)
+
+        if role in ("user", "assistant"):
+            message_count += 1
+
+        if role == "user" and title is None:
+            text = _openclaw_text(msg.get("content")).strip()
+            if text:
+                title = text.splitlines()[0][:120]
+
+        parts = []
+        if role == "assistant":
+            assistant_turns += 1
+            provider = msg.get("provider") or provider
+            model_id = msg.get("model") or model_id
+
+            usage = msg.get("usage") or {}
+            tokens_input += int(usage.get("input") or 0)
+            tokens_output += int(usage.get("output") or 0)
+            tokens_reasoning += int(usage.get("reasoning") or 0)
+            cost = usage.get("cost")
+            if isinstance(cost, dict):
+                cost_total += float(cost.get("total") or 0.0)
+            elif isinstance(cost, (int, float)):
+                cost_total += float(cost)
+
+            content = msg.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    ptype = part.get("type")
+                    if ptype == "toolCall":
+                        has_tool_calls = True
+                        if want_messages:
+                            parts.append({
+                                "type": "tool",
+                                "tool": part.get("name"),
+                                "call_id": part.get("id"),
+                                "status": "pending",
+                                "input": part.get("arguments") or {},
+                                "output": "",
+                            })
+                    elif ptype == "reasoning" and want_messages:
+                        parts.append({"type": "reasoning", "content": str(part.get("text") or "")})
+                    elif ptype == "text" and want_messages:
+                        parts.append({"type": "text", "content": str(part.get("text") or "")})
+
+        elif want_messages and role == "user":
+            parts.append({"type": "text", "content": _openclaw_text(msg.get("content"))})
+
+        if want_messages and role == "toolResult":
+            # Fold the result back into the tool part that issued the call. The
+            # join key is the tool call id; an empty result is still a result,
+            # so matching is on pending status rather than on empty output.
+            call_id = msg.get("toolCallId")
+            out_text = _openclaw_text(msg.get("content"))[:2000]
+            status = (msg.get("details") or {}).get("status") or "completed"
+
+            target = None
+            fallback = None
+            for prev in reversed(messages):
+                for prev_part in prev.get("parts", []):
+                    if prev_part.get("type") != "tool":
+                        continue
+                    if call_id and prev_part.get("call_id") == call_id:
+                        target = prev_part
+                        break
+                    if fallback is None and prev_part.get("status") == "pending":
+                        fallback = prev_part
+                if target:
+                    break
+
+            hit = target or fallback
+            if hit is not None:
+                hit["output"] = out_text
+                hit["status"] = status
+            continue
+
+        if want_messages and role in ("user", "assistant"):
+            usage = msg.get("usage") or {}
+            turn_in = int(usage.get("input") or 0)
+            turn_out = int(usage.get("output") or 0)
+            turn_reas = int(usage.get("reasoning") or 0)
+            messages.append({
+                "id": ev.get("id") or f"{session_id}:{len(messages)}",
+                "role": role,
+                "time_created": int(ts) if ts else 0,
+                "date_str": datetime.fromtimestamp(ts / 1000).strftime("%H:%M:%S") if ts else "",
+                "duration_s": 0.0,
+                "tokens_input": turn_in,
+                "tokens_output": turn_out,
+                "tokens_reasoning": turn_reas,
+                "total_tokens": turn_in + turn_out + turn_reas,
+                "tps": 0.0,
+                "parts": parts,
+            })
+
+    if first_ts is None:
+        first_ts = meta.get("sessionStartedAt") or meta.get("updatedAt")
+    if last_ts is None:
+        last_ts = meta.get("lastInteractionAt") or meta.get("updatedAt") or first_ts
+    if not first_ts:
+        try:
+            first_ts = int(path.stat().st_mtime * 1000)
+        except Exception:
+            first_ts = 0
+        last_ts = first_ts
+
+    duration_s = max(0.0, (last_ts - first_ts) / 1000.0) if (first_ts and last_ts) else 0.0
+    generated = tokens_output + tokens_reasoning
+    tps = round(generated / duration_s, 1) if (duration_s > 0.5 and generated) else 0.0
+
+    directory = cwd or meta.get("cwd") or str(entry["home"])
+    agent = entry.get("agent") or "main"
+    channel = ((meta.get("origin") or {}).get("provider")
+               or meta.get("lastChannel")
+               or (meta.get("route") or {}).get("channel"))
+
+    if not title:
+        title = f"OpenClaw {agent} session"
+
+    model_name = model_id or "unknown"
+    provider_name = provider or "openclaw"
+
+    record = {
+        "id": session_id,
+        "harness": "openclaw",
+        "title": title,
+        "directory": sanitize_path(directory),
+        "folder": Path(directory).name if directory else agent,
+        "model": model_name,
+        "provider": provider_name,
+        "agent": agent,
+        "channel": channel or "local",
+        "source_path": sanitize_path(str(path)),
+        "date_str": datetime.fromtimestamp(first_ts / 1000).strftime("%Y-%m-%d %H:%M") if first_ts else "Recent",
+        "time_created": int(first_ts or 0),
+        "duration_s": round(duration_s, 1),
+        "tokens_input": tokens_input,
+        "tokens_output": tokens_output,
+        "tokens_reasoning": tokens_reasoning,
+        "tokens_total": tokens_input + tokens_output + tokens_reasoning,
+        "cost": round(cost_total, 6),
+        "message_count": message_count,
+        "tps": tps,
+        "peak_tps": tps,
+        "has_tool_calls": has_tool_calls,
+    }
+
+    if want_messages:
+        record["messages"] = messages
+        record["avg_tps"] = tps
+        record["date_str"] = (
+            datetime.fromtimestamp(first_ts / 1000).strftime("%Y-%m-%d %H:%M:%S") if first_ts else ""
+        )
+
+    return record
+
+
+def get_openclaw_acp_sessions():
+    """Live gateway/ACP sessions from the OpenClaw state database, if any."""
     db_path = CONFIG.get("openclaw_db")
     if not db_path or not Path(db_path).exists():
         return []
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         c = conn.cursor()
         c.execute("SELECT session_key, session_id, agent, mode, cwd, updated_at FROM acp_sessions")
         rows = c.fetchall()
         conn.close()
-        res = []
-        for r in rows:
-            agent_name = r[2] if r[2] else "default"
-            t_updated = (r[5] or 0) / 1000
-            created_dt = datetime.fromtimestamp(t_updated) if t_updated else None
-            res.append({
-                "id": str(r[0] or r[1] or "oc_session"),
-                "harness": "openclaw",
-                "title": f"OpenClaw Agent ({agent_name})",
-                "directory": sanitize_path(r[4] or "~"),
-                "folder": Path(r[4]).name if r[4] else "openclaw",
-                "model": f"openclaw/{agent_name}",
-                "provider": "openclaw",
-                "date_str": created_dt.strftime("%Y-%m-%d %H:%M") if created_dt else "Recent",
-                "time_created": int(t_updated * 1000),
-                "duration_s": 45.0,
-                "tokens_input": 0,
-                "tokens_output": 0,
-                "tokens_reasoning": 0,
-                "tokens_total": 0,
-                "cost": 0.0,
-                "message_count": 1,
-                "tps": 0.0,
-                "peak_tps": 0.0,
-                "has_tool_calls": False,
-            })
-        return res
     except Exception:
         return []
+
+    res = []
+    for r in rows:
+        agent_name = r[2] or "default"
+        t_updated = (r[5] or 0) / 1000
+        created_dt = datetime.fromtimestamp(t_updated) if t_updated else None
+        res.append({
+            "id": str(r[0] or r[1] or "oc_session"),
+            "harness": "openclaw",
+            "title": f"OpenClaw ACP ({agent_name})",
+            "directory": sanitize_path(r[4] or "~"),
+            "folder": Path(r[4]).name if r[4] else "openclaw",
+            "model": f"openclaw/{agent_name}",
+            "provider": "openclaw",
+            "agent": agent_name,
+            "channel": r[3] or "acp",
+            "date_str": created_dt.strftime("%Y-%m-%d %H:%M") if created_dt else "Recent",
+            "time_created": int(t_updated * 1000),
+            "duration_s": 0.0,
+            "tokens_input": 0,
+            "tokens_output": 0,
+            "tokens_reasoning": 0,
+            "tokens_total": 0,
+            "cost": 0.0,
+            "message_count": 1,
+            "tps": 0.0,
+            "peak_tps": 0.0,
+            "has_tool_calls": False,
+        })
+    return res
+
+
+def get_openclaw_sessions():
+    """
+    All OpenClaw sessions: JSONL transcripts from every home on disk, plus any
+    live ACP sessions the gateway database knows about.
+    """
+    sessions = []
+    seen_ids = set()
+
+    for entry in scan_openclaw_session_files():
+        try:
+            rec = parse_openclaw_transcript(entry)
+        except Exception:
+            rec = None
+        if rec and rec["id"] not in seen_ids:
+            seen_ids.add(rec["id"])
+            sessions.append(rec)
+
+    for rec in get_openclaw_acp_sessions():
+        if rec["id"] not in seen_ids:
+            seen_ids.add(rec["id"])
+            sessions.append(rec)
+
+    sessions.sort(key=lambda s: s.get("time_created") or 0, reverse=True)
+    return sessions
+
+
+def get_openclaw_session_detail(session_id):
+    """Full transcript for one OpenClaw session, for the session inspector."""
+    for entry in scan_openclaw_session_files():
+        if entry["path"].stem != session_id:
+            continue
+        try:
+            rec = parse_openclaw_transcript(entry, want_messages=True)
+        except Exception:
+            rec = None
+        if rec:
+            return rec
+    return None
 
 
 def get_aider_sessions():
@@ -982,6 +1535,11 @@ def get_sessions(query_params):
 
 
 def get_session_detail(session_id):
+    # OpenClaw transcripts live on disk as JSONL, not in the OpenCode database.
+    openclaw = get_openclaw_session_detail(session_id)
+    if openclaw:
+        return openclaw
+
     conn = get_db_connection()
     if not conn:
         return {"error": "Database not found"}
@@ -1348,6 +1906,11 @@ def run(port=PORT):
     print(f"  OpenCode DB: {sanitize_path(str(CONFIG['opencode_db']))}")
     if CONFIG["openclaw_db"]:
         print(f"  OpenClaw DB: {sanitize_path(str(CONFIG['openclaw_db']))}")
+    for home in CONFIG["openclaw_homes"]:
+        print(f"  OpenClaw home: {sanitize_path(str(home))}")
+    oc_count = len(scan_openclaw_session_files())
+    if oc_count:
+        print(f"  OpenClaw transcripts: {oc_count}")
     print("=========================================================\n")
     try:
         httpd.serve_forever()
@@ -1361,11 +1924,16 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=None, help="Port number")
     parser.add_argument("--db", "--opencode-db", type=str, default=None, help="Path to opencode.db SQLite file")
     parser.add_argument("--openclaw-db", type=str, default=None, help="Path to openclaw.sqlite file")
+    parser.add_argument("--openclaw-home", type=str, action="append", default=None,
+                        help="Extra OpenClaw home directory to scan for transcripts (repeatable)")
 
     args = parser.parse_args()
 
     if args.db:
         CONFIG["opencode_db"] = Path(args.db)
+    if args.openclaw_home:
+        CONFIG["openclaw_homes"] = resolve_openclaw_homes(args.openclaw_home)
+        CONFIG["openclaw_db"] = resolve_openclaw_db(homes=CONFIG["openclaw_homes"])
     if args.openclaw_db:
         CONFIG["openclaw_db"] = Path(args.openclaw_db)
 

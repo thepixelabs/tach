@@ -11,7 +11,7 @@
 </head>
 <body class="app-body">
 
-  <div class="app-shell">
+  <div class="app-shell" data-tab="dashboard">
     
     <!-- Handy Left Navigation Menu / Sidebar -->
     <aside class="app-sidebar" id="appSidebar">
@@ -54,7 +54,7 @@
             <span class="source-name">OpenCode</span>
             <span class="source-pill mono" id="sideCountOpenCode">--</span>
           </button>
-          <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw gateway sessions">
+          <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw agent transcripts across every OpenClaw home on this machine">
             <span class="source-icon">🐾</span>
             <span class="source-name">OpenClaw</span>
             <span class="source-pill mono" id="sideCountOpenClaw">--</span>
@@ -69,15 +69,34 @@
             <span class="source-name">Continue</span>
             <span class="source-pill mono" id="sideCountContinue">--</span>
           </button>
-          <button class="sidebar-source-item" data-harness="mlx" onclick="selectDataSource('mlx')" title="Live Apple Silicon MLX LM Server (:8080)">
+        </div>
+
+        <!-- Local inference servers: these are engines, not session archives -->
+        <div class="nav-section-title mono servers-title">LOCAL SERVERS</div>
+        <div class="sidebar-server-list" id="sidebarServerList">
+          <button class="sidebar-server-item" data-server="mlx" onclick="showServerPanel('mlx')" title="Apple Silicon MLX LM Server (:8080)">
             <span class="source-icon">🟢</span>
-            <span class="source-name">MLX LM</span>
-            <span class="status-chip mono online" id="sideStatusMlx">Live</span>
+            <span class="server-meta">
+              <span class="source-name">MLX LM</span>
+              <span class="server-port mono">:8080</span>
+            </span>
+            <span class="status-chip mono offline" id="sideStatusMlx">Offline</span>
           </button>
-          <button class="sidebar-source-item" data-harness="ollama" onclick="selectDataSource('ollama')" title="Local Ollama Daemon (:11434)">
+          <button class="sidebar-server-item" data-server="ollama" onclick="showServerPanel('ollama')" title="Local Ollama daemon (:11434)">
             <span class="source-icon">🦙</span>
-            <span class="source-name">Ollama</span>
+            <span class="server-meta">
+              <span class="source-name">Ollama</span>
+              <span class="server-port mono">:11434</span>
+            </span>
             <span class="status-chip mono offline" id="sideStatusOllama">Offline</span>
+          </button>
+          <button class="sidebar-server-item" data-server="openclaw" onclick="showServerPanel('openclaw')" title="OpenClaw gateway daemon">
+            <span class="source-icon">🐾</span>
+            <span class="server-meta">
+              <span class="source-name">OpenClaw GW</span>
+              <span class="server-port mono" id="sidePortOpenClawGw">:18789</span>
+            </span>
+            <span class="status-chip mono offline" id="sideStatusOpenClawGw">Offline</span>
           </button>
         </div>
       </div>
@@ -92,6 +111,10 @@
           <div class="backend-dot-status offline" id="dotOllama" title="Ollama (:11434) Offline">
             <span class="dot red"></span>
             <span class="mono">OLLAMA</span>
+          </div>
+          <div class="backend-dot-status offline" id="dotOpenClawGw" title="OpenClaw gateway offline">
+            <span class="dot red"></span>
+            <span class="mono">CLAW-GW</span>
           </div>
         </div>
         <button class="btn-theme-quick" onclick="openSettingsModal()" title="Customize appearance & subtle theme">
@@ -222,9 +245,9 @@
           <div class="settings-section-label mono">THEME PALETTE</div>
           <div class="theme-options-grid">
             <button class="theme-card active" data-theme="subtle" onclick="applyTheme('subtle')">
-              <div class="theme-card-preview theme-preview-subtle">
+              <div class="theme-card-preview" style="--pv-dark:#0A0E18;--pv-light:#BFC9D9;">
                 <span class="preview-dot" style="background:#6366F1;"></span>
-                <span class="preview-dot" style="background:#0EA5E9;"></span>
+                <span class="preview-dot" style="background:#22B8F0;"></span>
                 <span class="preview-dot" style="background:#10B981;"></span>
               </div>
               <div class="theme-card-title">Subtle Slate & Indigo (Default)</div>
@@ -232,8 +255,8 @@
             </button>
 
             <button class="theme-card" data-theme="neon" onclick="applyTheme('neon')">
-              <div class="theme-card-preview theme-preview-neon">
-                <span class="preview-dot" style="background:#BE48E0;"></span>
+              <div class="theme-card-preview" style="--pv-dark:#100720;--pv-light:#C8B0D4;">
+                <span class="preview-dot" style="background:#C44DEE;"></span>
                 <span class="preview-dot" style="background:#00F0FF;"></span>
                 <span class="preview-dot" style="background:#39FF14;"></span>
               </div>
@@ -242,20 +265,20 @@
             </button>
 
             <button class="theme-card" data-theme="light" onclick="applyTheme('light')">
-              <div class="theme-card-preview theme-preview-light">
-                <span class="preview-dot" style="background:#4F46E5;"></span>
-                <span class="preview-dot" style="background:#0284C7;"></span>
-                <span class="preview-dot" style="background:#059669;"></span>
+              <div class="theme-card-preview" style="--pv-dark:#C8BFAC;--pv-light:#C8BFAC;">
+                <span class="preview-dot" style="background:#4338CA;"></span>
+                <span class="preview-dot" style="background:#0369A1;"></span>
+                <span class="preview-dot" style="background:#047857;"></span>
               </div>
               <div class="theme-card-title">Creamy Studio</div>
               <div class="theme-card-desc">Warm creamy minimalist tone with soft contrast and indigo accents.</div>
             </button>
 
             <button class="theme-card" data-theme="solar" onclick="applyTheme('solar')">
-              <div class="theme-card-preview theme-preview-solar">
+              <div class="theme-card-preview" style="--pv-dark:#12100B;--pv-light:#D3C296;">
                 <span class="preview-dot" style="background:#E2B714;"></span>
                 <span class="preview-dot" style="background:#38BDF8;"></span>
-                <span class="preview-dot" style="background:#22C55E;"></span>
+                <span class="preview-dot" style="background:#4ADE80;"></span>
               </div>
               <div class="theme-card-title">Solar Monochrome</div>
               <div class="theme-card-desc">Minimalist OLED black with amber gold metrics and high-contrast typography.</div>
@@ -283,15 +306,23 @@
             </div>
             <div class="sys-info-row">
               <span class="sys-lbl mono">OpenClaw DB</span>
-              <span class="sys-val mono" id="sysOpenClawDb">~/.openclaw/state/openclaw.sqlite</span>
+              <span class="sys-val mono" id="sysOpenClawDb">not detected</span>
+            </div>
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">OpenClaw transcripts</span>
+              <span class="sys-val mono" id="sysOpenClawHomes">not detected</span>
             </div>
             <div class="sys-info-row">
               <span class="sys-lbl mono">MLX LM Server</span>
-              <span class="sys-val mono">http://127.0.0.1:8080</span>
+              <span class="sys-val mono" id="sysMlxUrl">http://127.0.0.1:8080</span>
             </div>
             <div class="sys-info-row">
               <span class="sys-lbl mono">Ollama Server</span>
-              <span class="sys-val mono">http://127.0.0.1:11434</span>
+              <span class="sys-val mono" id="sysOllamaUrl">http://127.0.0.1:11434</span>
+            </div>
+            <div class="sys-info-row">
+              <span class="sys-lbl mono">OpenClaw Gateway</span>
+              <span class="sys-val mono" id="sysOpenClawGw">http://127.0.0.1:18789</span>
             </div>
           </div>
         </div>

@@ -27,10 +27,10 @@ Token Telemetry answers these questions through a clean, customizable dashboard 
 You do not need to configure paths manually. On startup, the server automatically inspects standard operating system locations for:
 
 1. **OpenCode**: Reads `opencode.db` from standard XDG data directories, `~/Library/Application Support/opencode/`, and local application data folders.
-2. **OpenClaw**: Discovers `~/.openclaw/state/openclaw.sqlite` for autonomous agent execution logs and session histories.
+2. **OpenClaw**: Scans every OpenClaw home on the machine (`$OPENCLAW_HOME`, `~/.openclaw`, XDG/Application Support locations, and project-local `.openclaw` directories) for agent transcripts under `agents/<agent>/sessions/*.jsonl`, and reads `state/openclaw.sqlite` for live ACP sessions.
 3. **Aider**: Scans git repositories and project roots for `.aider.chat.history.md` records.
 4. **Continue.dev**: Pulls session metadata and prompt histories from `~/.continue/sessions/`.
-5. **Local Inference Servers**: Queries live endpoints on MLX LM (`localhost:8080`) and Ollama (`localhost:11434`) for active model status, context windows, and continuous batching metrics.
+5. **Local Servers**: Queries live endpoints on MLX LM (`localhost:8080`), Ollama (`localhost:11434`), and the OpenClaw gateway (port read from `openclaw.json`, default `18789`) for reachability, active model status, context windows, and continuous batching metrics. These are engines, not session archives, and are listed separately from data sources in the sidebar.
 
 ### Speculative Decoding & MTP Telemetry
 If you run modern speculative architectures such as Qwen MTP or Medusa on Apple Silicon, you will occasionally notice instantaneous decode rates exceeding 100,000 tokens per second in your logs. Token Telemetry captures and explains these multi-token verification bursts alongside standard autoregressive generation curves.
@@ -73,6 +73,9 @@ python3 server.py 8080
 
 # Specify custom database paths
 python3 server.py --opencode-db /path/to/opencode.db --openclaw-db /path/to/openclaw.sqlite
+
+# Add an OpenClaw home to scan for transcripts (repeatable)
+python3 server.py --openclaw-home /path/to/.openclaw
 
 # Run headless without opening a browser
 python3 server.py --no-browser

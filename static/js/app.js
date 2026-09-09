@@ -661,6 +661,26 @@ function cleanupResizeObservers() {
   state.resizeObservers.clear();
 }
 
+// ============================================================
+// THEME COLOUR ACCESS
+// Canvas charts cannot use CSS variables directly, so they read the
+// resolved token off the document root at draw time. That keeps every
+// chart in step with the active theme instead of hardcoding a palette.
+// ============================================================
+function themeColor(token, fallback = '#888888') {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+    return v || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function themeAlpha(rgbToken, alpha, fallback = '136, 136, 136') {
+  const triplet = themeColor(rgbToken, fallback);
+  return `rgba(${triplet}, ${alpha})`;
+}
+
 function renderDashboard() {
   const grid = document.getElementById('dashboardGrid');
   if (!grid) return;
@@ -811,7 +831,7 @@ function renderSpeculativeBurstPanel(container, appState) {
         <span style="font-size:0.75rem;color:var(--text-sub);">Instantaneous Burst Rate:</span>
         <span class="mono" style="color:var(--neon-pink);font-weight:700;">118,230.7 tok/s</span>
       </div>
-      <div style="background:rgba(255,20,147,0.06);border:1px solid rgba(255,20,147,0.25);border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;font-size:0.75rem;line-height:1.4;">
+      <div style="background:rgba(var(--accent-pink-rgb),0.08);border:1px solid rgba(var(--accent-pink-rgb),0.28);border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;font-size:0.75rem;line-height:1.4;">
         <strong style="color:var(--neon-pink);">Why 100k+ tok/s spikes appear:</strong><br>
         1. <strong>MTP Speculative Verification:</strong> The Qwen3.8-MTP draft model proposes candidate tokens verified simultaneously in a single forward pass (< 0.1ms).<br>
         2. <strong>APC Cache Re-Use:</strong> Prefix chunks in Apple Silicon unified memory bypass matrix attention, registering memory-bandwidth transfer speeds.
@@ -912,7 +932,7 @@ function renderTelemetryTablePanel(container, appState) {
   reqs.forEach((r, i) => {
     const isTool = r.tool_calls ? '<span class="badge badge-provider mono" style="color:var(--neon-amber);border-color:var(--neon-amber);">tool_calls</span>' : '<span class="badge badge-folder mono">text</span>';
     tableRows += `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.78rem;">
+      <tr style="border-bottom:1px solid var(--line-1);font-size:0.78rem;">
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono, monospace;color:var(--text-muted);">#${reqs.length - i}</td>
         <td style="padding:0.6rem 0.75rem;font-weight:600;">${escapeHtml(r.model)}</td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-cyan);">${formatNum(r.prompt_tokens)}</td>
@@ -975,7 +995,7 @@ function renderDecodeAccelPanel(container, appState) {
         <div class="bar-row-track"><div class="bar-row-fill" style="width:${(last32 / 40) * 100}%;background:var(--neon-acid);"></div></div>
         <span class="bar-row-val mono" style="color:var(--neon-acid);">${last32} tok/s</span>
       </div>
-      <div style="margin-top:0.75rem;padding:0.5rem;border-radius:6px;background:rgba(57,255,20,0.06);border:1px solid rgba(57,255,20,0.2);font-size:0.75rem;">
+      <div style="margin-top:0.75rem;padding:0.5rem;border-radius:6px;background:rgba(var(--accent-success-rgb),0.08);border:1px solid rgba(var(--accent-success-rgb),0.25);font-size:0.75rem;">
         ⚡ <strong>+${gain}% Acceleration:</strong> Model achieves full speculative draft throughput as KV cache context stabilizes.
       </div>
     </div>
@@ -1157,12 +1177,13 @@ function renderTpsTrendPanel(container, appState) {
     const getX = idx => pad.left + (idx / Math.max(data.length - 1, 1)) * chartW;
     const getY = val => pad.top + chartH - (val / maxTps) * chartH;
 
-    const isLight = document.documentElement.getAttribute('data-mode') === 'light';
-    const gridStroke = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.06)';
-    const textFill = isLight ? '#4B5565' : '#5E667E';
-    const peakColor = isLight ? '#E11D48' : '#FF1493';
-    const avgColor = isLight ? '#059669' : '#10B981';
-    const fillStart = isLight ? 'rgba(5, 150, 105, 0.22)' : 'rgba(57, 255, 20, 0.3)';
+    const gridStroke = themeAlpha('--shade-rgb', 0.10);
+    const textFill = themeColor('--text-muted');
+    const peakColor = themeColor('--accent-pink');
+    const avgColor = themeColor('--accent-success');
+    const fillStart = themeAlpha('--accent-success-rgb', 0.28);
+    const fillEnd = themeAlpha('--accent-success-rgb', 0);
+    const dotStroke = themeColor('--bg-panel-solid');
 
     ctx.strokeStyle = gridStroke;
     ctx.lineWidth = 1;
@@ -1193,7 +1214,7 @@ function renderTpsTrendPanel(container, appState) {
 
     const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + chartH);
     grad.addColorStop(0, fillStart);
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+    grad.addColorStop(1, fillEnd);
 
     ctx.beginPath();
     data.forEach((d, i) => {
@@ -1218,13 +1239,13 @@ function renderTpsTrendPanel(container, appState) {
 
       ctx.beginPath();
       ctx.arc(x, yAvg, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#39FF14';
+      ctx.fillStyle = avgColor;
       ctx.fill();
-      ctx.strokeStyle = '#0d0e14';
+      ctx.strokeStyle = dotStroke;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      ctx.fillStyle = '#9EA6BD';
+      ctx.fillStyle = textFill;
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
       const dateLabel = (d.date || '').slice(5);
@@ -1303,12 +1324,11 @@ function renderTokenVolumePanel(container, appState) {
     const maxTokens = Math.max(...data.map(d => d.tokens_total || 0), 1000) * 1.15;
     const barWidth = Math.min((chartW / data.length) * 0.65, 30);
 
-    const isLight = document.documentElement.getAttribute('data-mode') === 'light';
-    const gridStroke = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.06)';
-    const textFill = isLight ? '#4B5565' : '#5E667E';
-    const inColor = isLight ? 'rgba(2, 132, 199, 0.6)' : 'rgba(0, 240, 255, 0.45)';
-    const outColor = isLight ? '#6366F1' : '#BE48E0';
-    const dateFill = isLight ? '#4B5565' : '#9EA6BD';
+    const gridStroke = themeAlpha('--shade-rgb', 0.10);
+    const textFill = themeColor('--text-muted');
+    const inColor = themeAlpha('--accent-secondary-rgb', 0.55);
+    const outColor = themeColor('--accent-primary');
+    const dateFill = themeColor('--text-muted');
 
     ctx.strokeStyle = gridStroke;
     ctx.lineWidth = 1;
@@ -1368,7 +1388,7 @@ function renderTokenVolumePanel(container, appState) {
         <div style="font-weight:700;color:#FFF;margin-bottom:2px;">📅 ${d.date}</div>
         <div style="color:var(--neon-violet);">Output Gen: <strong>${formatNum(d.tokens_output)}</strong></div>
         <div style="color:var(--neon-cyan);">Input Context: <strong>${formatNum(d.tokens_input)}</strong></div>
-        <div style="color:#FFF;border-top:1px solid rgba(255,255,255,0.1);padding-top:2px;margin-top:2px;">Total: <strong>${formatNum(d.tokens_total)}</strong></div>
+        <div style="color:var(--text-main);border-top:1px solid var(--line-2);padding-top:2px;margin-top:2px;">Total: <strong>${formatNum(d.tokens_total)}</strong></div>
       `;
       tooltip.style.left = e.clientX + 'px';
       tooltip.style.top = e.clientY + 'px';
@@ -1383,40 +1403,54 @@ function renderLivePulsePanel(container, appState) {
   const live = appState.live || {};
   const mlx = live.mlx || {};
   const ollama = live.ollama || {};
+  const claw = live.openclaw || {};
 
-  const mlxOnline = mlx.online;
   const mlxDet = mlx.details || {};
-
-  const ollamaOnline = ollama.online;
   const ollamaDet = ollama.details || {};
+  const clawDet = claw.details || {};
+
+  const box = (opts) => `
+    <div class="pulse-box ${opts.online ? 'is-online' : 'is-offline'}" style="--pulse-accent:${opts.accent};">
+      <div class="pulse-box-title">
+        <span>${escapeHtml(opts.name)}</span>
+        <span class="pulse-state mono">${opts.online ? '● ONLINE' : '○ OFFLINE'}</span>
+      </div>
+      <div class="pulse-box-val mono">${opts.value}</div>
+      <div class="pulse-box-sub">${opts.sub}</div>
+    </div>
+  `;
 
   container.innerHTML = `
     <div class="live-pulse-grid">
-      <div class="pulse-box" style="${mlxOnline ? 'border-color:rgba(57,255,20,0.3);' : ''}">
-        <div class="pulse-box-title" style="display:flex;align-items:center;justify-content:space-between;">
-          <span>MLX Engine (:8080)</span>
-          <span style="color:${mlxOnline ? 'var(--neon-acid)' : 'var(--text-muted)'};font-size:0.75rem;">${mlxOnline ? '● ONLINE' : '○ OFFLINE'}</span>
-        </div>
-        <div class="pulse-box-val mono" style="color:var(--neon-acid);font-size:1.2rem;">
-          ${mlxOnline ? (mlxDet.decode_tok_s || 0) + ' <span style="font-size:0.75rem;">tok/s</span>' : 'Idle'}
-        </div>
-        <div style="font-size:0.72rem;color:var(--text-sub);margin-top:0.3rem;">
-          ${mlxOnline ? escapeHtml(mlxDet.model?.split('/').pop() || 'Loaded') : 'Start with mlx_vlm.server'}
-        </div>
-      </div>
-
-      <div class="pulse-box" style="${ollamaOnline ? 'border-color:rgba(0,240,255,0.3);' : ''}">
-        <div class="pulse-box-title" style="display:flex;align-items:center;justify-content:space-between;">
-          <span>Ollama Engine (:11434)</span>
-          <span style="color:${ollamaOnline ? 'var(--neon-cyan)' : 'var(--text-muted)'};font-size:0.75rem;">${ollamaOnline ? '● ONLINE' : '○ OFFLINE'}</span>
-        </div>
-        <div class="pulse-box-val mono" style="color:var(--neon-cyan);font-size:1.2rem;">
-          ${ollamaOnline ? (ollamaDet.active_model ? escapeHtml(ollamaDet.active_model) : 'Standby') : 'Offline'}
-        </div>
-        <div style="font-size:0.72rem;color:var(--text-sub);margin-top:0.3rem;">
-          ${ollamaOnline ? (ollamaDet.size_vram_gb ? ollamaDet.size_vram_gb + ' GB VRAM' : '0 models active') : 'Local daemon'}
-        </div>
-      </div>
+      ${box({
+        name: 'MLX Engine (:8080)',
+        online: mlx.online,
+        accent: 'var(--accent-success)',
+        value: mlx.online ? `${mlxDet.decode_tok_s || 0} <span class="pulse-unit">tok/s</span>` : 'Idle',
+        sub: mlx.online
+          ? escapeHtml(mlxDet.model?.split('/').pop() || 'Loaded')
+          : 'Start with mlx_vlm.server',
+      })}
+      ${box({
+        name: 'Ollama Engine (:11434)',
+        online: ollama.online,
+        accent: 'var(--accent-secondary)',
+        value: ollama.online
+          ? (ollamaDet.active_model ? escapeHtml(ollamaDet.active_model) : 'Standby')
+          : 'Offline',
+        sub: ollama.online
+          ? (ollamaDet.size_vram_gb ? `${ollamaDet.size_vram_gb} GB VRAM` : '0 models active')
+          : 'Local daemon',
+      })}
+      ${box({
+        name: `OpenClaw Gateway (:${clawDet.port || 18789})`,
+        online: claw.online,
+        accent: 'var(--accent-primary)',
+        value: claw.online
+          ? (clawDet.version ? escapeHtml(String(clawDet.version)) : 'Running')
+          : 'Offline',
+        sub: `${clawDet.sessions || 0} transcript${clawDet.sessions === 1 ? '' : 's'} on disk`,
+      })}
     </div>
   `;
 }
@@ -1577,7 +1611,7 @@ function renderGallery() {
             </div>
             ${
               isAdded
-                ? `<button class="btn-ghost" onclick="removePanel('${p.id}')" style="color:var(--neon-acid);border-color:rgba(57,255,20,0.3);">✓ Active</button>`
+                ? `<button class="btn-ghost" onclick="removePanel('${p.id}')" style="color:var(--accent-success);border-color:rgba(var(--accent-success-rgb),0.35);">✓ Active</button>`
                 : `<button class="btn-primary-neon" onclick="addPanel('${p.id}')" style="padding:0.3rem 0.75rem;font-size:0.75rem;">+ Add</button>`
             }
           </div>
@@ -1607,6 +1641,7 @@ async function fetchStats() {
     renderDashboard();
     renderFilterDropdowns();
     updateDataSourcePillCounts();
+    renderSystemInfo();
   } catch (err) {
     console.error('Failed to load stats', err);
   }
@@ -1759,53 +1794,98 @@ function selectDataSource(harness, triggerFetch = true) {
   }
 }
 
+// Sidebar counts come from the unfiltered harness inventory, so selecting one
+// source does not zero out the others.
 function updateDataSourcePillCounts() {
   if (!state.stats) return;
-  const countAll = document.getElementById('sideCountAll') || document.getElementById('dsCountAll');
-  if (countAll) countAll.textContent = state.stats.total_sessions || 0;
 
-  const countOpenCode = document.getElementById('sideCountOpenCode') || document.getElementById('dsCountOpenCode');
-  if (countOpenCode) countOpenCode.textContent = state.stats.total_sessions || 0;
+  const targets = {
+    all: ['sideCountAll', 'dsCountAll'],
+    opencode: ['sideCountOpenCode', 'dsCountOpenCode'],
+    openclaw: ['sideCountOpenClaw', 'dsCountOpenClaw'],
+    aider: ['sideCountAider', 'dsCountAider'],
+    continue: ['sideCountContinue', 'dsCountContinue'],
+  };
 
   (state.stats.harnesses || []).forEach(h => {
-    if (h.id === 'openclaw') {
-      const el = document.getElementById('sideCountOpenClaw') || document.getElementById('dsCountOpenClaw');
-      if (el) el.textContent = h.count || 0;
-    }
-    if (h.id === 'aider') {
-      const el = document.getElementById('sideCountAider') || document.getElementById('dsCountAider');
-      if (el) el.textContent = h.count || 0;
-    }
-    if (h.id === 'continue') {
-      const el = document.getElementById('sideCountContinue') || document.getElementById('dsCountContinue');
-      if (el) el.textContent = h.count || 0;
-    }
+    const ids = targets[h.id];
+    if (!ids) return;
+    const el = document.getElementById(ids[0]) || document.getElementById(ids[1]);
+    if (el) el.textContent = h.count || 0;
+
+    const btn = document.querySelector(`.sidebar-source-item[data-harness="${h.id === 'all' ? '' : h.id}"]`);
+    if (btn) btn.classList.toggle('is-empty', !h.count);
   });
 
-  if (state.live) {
-    const isMlxOnline = !!state.live.mlx?.online;
-    const mlxEl = document.getElementById('sideStatusMlx') || document.getElementById('dsStatusMlx');
-    if (mlxEl) {
-      mlxEl.textContent = isMlxOnline ? 'Live' : 'Offline';
-      mlxEl.className = isMlxOnline ? 'status-chip mono online' : 'status-chip mono offline';
-    }
+  updateServerStatuses();
+}
 
-    const isOllamaOnline = !!state.live.ollama?.online;
-    const ollamaEl = document.getElementById('sideStatusOllama') || document.getElementById('dsStatusOllama');
-    if (ollamaEl) {
-      ollamaEl.textContent = isOllamaOnline ? 'Live' : 'Offline';
-      ollamaEl.className = isOllamaOnline ? 'status-chip mono online' : 'status-chip mono offline';
-    }
+// Local inference servers (MLX, Ollama, OpenClaw gateway) are engines rather than
+// session archives, so their reachability is tracked separately from harness counts.
+function updateServerStatuses() {
+  if (!state.live) return;
 
-    const dotMlx = document.getElementById('dotMlx');
-    if (dotMlx) {
-      dotMlx.className = isMlxOnline ? 'backend-dot-status online' : 'backend-dot-status offline';
-    }
-    const dotOllama = document.getElementById('dotOllama');
-    if (dotOllama) {
-      dotOllama.className = isOllamaOnline ? 'backend-dot-status online' : 'backend-dot-status offline';
-    }
+  const setChip = (id, online) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = online ? 'Online' : 'Offline';
+    el.className = online ? 'status-chip mono online' : 'status-chip mono offline';
+  };
+  const setDot = (id, online, title) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = online ? 'backend-dot-status online' : 'backend-dot-status offline';
+    const dot = el.querySelector('.dot');
+    if (dot) dot.className = online ? 'dot' : 'dot red';
+    if (title) el.title = title;
+  };
+  const setItem = (selector, online) => {
+    const el = document.querySelector(selector);
+    if (el) el.classList.toggle('is-online', online);
+  };
+
+  const mlxOnline = !!state.live.mlx?.online;
+  const ollamaOnline = !!state.live.ollama?.online;
+  const clawOnline = !!state.live.openclaw?.online;
+  const clawPort = state.live.openclaw?.details?.port || 18789;
+
+  setChip('sideStatusMlx', mlxOnline);
+  setChip('sideStatusOllama', ollamaOnline);
+  setChip('sideStatusOpenClawGw', clawOnline);
+
+  setItem('.sidebar-server-item[data-server="mlx"]', mlxOnline);
+  setItem('.sidebar-server-item[data-server="ollama"]', ollamaOnline);
+  setItem('.sidebar-server-item[data-server="openclaw"]', clawOnline);
+
+  const portEl = document.getElementById('sidePortOpenClawGw');
+  if (portEl) portEl.textContent = `:${clawPort}`;
+
+  setDot('dotMlx', mlxOnline, `MLX Server (:8080) ${mlxOnline ? 'Online' : 'Offline'}`);
+  setDot('dotOllama', ollamaOnline, `Ollama (:11434) ${ollamaOnline ? 'Online' : 'Offline'}`);
+  setDot('dotOpenClawGw', clawOnline, `OpenClaw gateway (:${clawPort}) ${clawOnline ? 'Online' : 'Offline'}`);
+}
+
+// Clicking a local server jumps to the live pulse dashboard rather than filtering
+// sessions - a server is not a session source.
+function showServerPanel(serverId) {
+  document.querySelectorAll('.sidebar-server-item').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-server') === serverId);
+  });
+
+  const live = state.live || {};
+  const det = live[serverId]?.details || {};
+  const online = !!live[serverId]?.online;
+  const labels = { mlx: 'MLX LM (:8080)', ollama: 'Ollama (:11434)', openclaw: `OpenClaw gateway (:${det.port || 18789})` };
+
+  switchNavTab('dashboard');
+  const panel = document.getElementById('panel-live-pulse');
+  if (panel) {
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    panel.classList.add('panel-flash');
+    setTimeout(() => panel.classList.remove('panel-flash'), 1200);
   }
+
+  showToast(`${labels[serverId] || serverId}: ${online ? 'online' : 'offline'}`);
 }
 
 function showToast(msg) {
@@ -1813,7 +1893,7 @@ function showToast(msg) {
   if (!toast) {
     toast = document.createElement('div');
     toast.id = 'toastNotification';
-    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:rgba(18,16,28,0.94);border:1px solid var(--neon-violet);color:#FFF;padding:0.6rem 1.1rem;border-radius:8px;box-shadow:0 0 16px rgba(190,72,224,0.4);font-family:"Space Grotesk",sans-serif;font-size:0.82rem;font-weight:600;z-index:9999;transition:opacity 0.25s ease;pointer-events:none;';
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:var(--bg-panel-solid);border:1px solid var(--accent-primary);color:var(--text-main);padding:0.6rem 1.1rem;border-radius:8px;box-shadow:var(--glow-violet);font-family:var(--font-display);font-size:0.82rem;font-weight:600;z-index:9999;transition:opacity 0.25s ease;pointer-events:none;';
     document.body.appendChild(toast);
   }
   toast.textContent = msg;
@@ -1844,42 +1924,39 @@ function renderLiveStatusBar() {
 
   const mlx = state.live.mlx || {};
   const ollama = state.live.ollama || {};
+  const claw = state.live.openclaw || {};
+  const clawPort = claw.details?.port || 18789;
+
+  const pill = (online, title, label) => `
+    <div class="status-pill ${online ? 'online' : ''}" title="${escapeHtml(title)}">
+      <span class="status-indicator"></span>
+      <span>${label}</span>
+    </div>
+  `;
+
+  const mlxDet = mlx.details || {};
+  const ollamaDet = ollama.details || {};
 
   let html = '';
-
-  if (mlx.online) {
-    const det = mlx.details || {};
-    html += `
-      <div class="status-pill online" title="MLX Server (:8080) Online">
-        <span class="status-indicator"></span>
-        <span>MLX: <strong style="color:var(--neon-acid);">${det.decode_tok_s || 0} tok/s</strong> (${escapeHtml(det.model ? det.model.split('/').pop() : 'Loaded')})</span>
-      </div>
-    `;
-  } else {
-    html += `
-      <div class="status-pill" title="MLX Server (:8080) Offline">
-        <span class="status-indicator"></span>
-        <span>MLX Offline</span>
-      </div>
-    `;
-  }
-
-  if (ollama.online) {
-    const det = ollama.details || {};
-    html += `
-      <div class="status-pill online" title="Ollama (:11434) Online">
-        <span class="status-indicator"></span>
-        <span>Ollama: <strong style="color:var(--neon-cyan);">${escapeHtml(det.active_model || 'Idle')}</strong></span>
-      </div>
-    `;
-  } else {
-    html += `
-      <div class="status-pill" title="Ollama (:11434) Offline">
-        <span class="status-indicator"></span>
-        <span>Ollama Offline</span>
-      </div>
-    `;
-  }
+  html += pill(
+    mlx.online,
+    `MLX Server (:8080) ${mlx.online ? 'Online' : 'Offline'}`,
+    mlx.online
+      ? `MLX: <strong>${mlxDet.decode_tok_s || 0} tok/s</strong> (${escapeHtml(mlxDet.model ? mlxDet.model.split('/').pop() : 'Loaded')})`
+      : 'MLX Offline'
+  );
+  html += pill(
+    ollama.online,
+    `Ollama (:11434) ${ollama.online ? 'Online' : 'Offline'}`,
+    ollama.online
+      ? `Ollama: <strong>${escapeHtml(ollamaDet.active_model || 'Idle')}</strong>`
+      : 'Ollama Offline'
+  );
+  html += pill(
+    claw.online,
+    `OpenClaw gateway (:${clawPort}) ${claw.online ? 'Online' : 'Offline'}`,
+    claw.online ? 'OpenClaw GW: <strong>Running</strong>' : 'OpenClaw GW Offline'
+  );
 
   container.innerHTML = html;
 }
@@ -2263,6 +2340,37 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
   if (modal) modal.classList.add('open');
+  renderSystemInfo();
+}
+
+// The paths panel reports what the server actually resolved on this machine,
+// rather than the defaults that used to be hardcoded in the markup.
+function renderSystemInfo() {
+  const info = state.stats?.system_info || {};
+  const live = state.live || {};
+
+  const set = (id, value, title) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    el.title = title || value;
+  };
+
+  set('sysOpenCodeDb', info.opencode_db || 'not detected');
+  set('sysOpenClawDb', info.openclaw_db || 'not detected');
+
+  const homes = info.openclaw_homes || [];
+  set(
+    'sysOpenClawHomes',
+    homes.length ? homes.join('  ·  ') : 'not detected',
+    homes.length ? homes.join('\n') : 'No OpenClaw home directory found'
+  );
+
+  const clawPort = live.openclaw?.details?.port || 18789;
+  const clawState = live.openclaw?.online ? 'online' : 'offline';
+  set('sysOpenClawGw', `http://127.0.0.1:${clawPort} (${clawState})`);
+  set('sysMlxUrl', `http://127.0.0.1:8080 (${live.mlx?.online ? 'online' : 'offline'})`);
+  set('sysOllamaUrl', `http://127.0.0.1:11434 (${live.ollama?.online ? 'online' : 'offline'})`);
 }
 
 function closeSettingsModal() {
