@@ -42,19 +42,21 @@ window.state = state;
 
 // Default Dashboard Layout (12-column grid system)
 const DEFAULT_LAYOUT = [
+  // What am I looking at -> how fast -> where the time went -> what broke ->
+  // where effort landed -> what happened recently. Every row sums to 12.
+  { id: 'coverage-strip', cols: 12, rows: 2 },
   { id: 'kpi-banner', cols: 12, rows: 3 },
+  { id: 'turn-time-budget', cols: 5, rows: 5 },
+  { id: 'decode-distribution', cols: 4, rows: 5 },
+  { id: 'outcome-ledger', cols: 3, rows: 5 },
   { id: 'tps-trend', cols: 8, rows: 5 },
-  { id: 'speculative-burst', cols: 4, rows: 5 },
-  { id: 'prefill-vs-decode', cols: 6, rows: 4 },
-  { id: 'ttft-latency', cols: 6, rows: 4 },
-  { id: 'telemetry-table', cols: 12, rows: 8 },
-  { id: 'speed-distribution', cols: 4, rows: 4 },
-  { id: 'model-share', cols: 4, rows: 4 },
-  { id: 'tool-usage', cols: 4, rows: 4 },
-  { id: 'apc-cache', cols: 6, rows: 4 },
-  { id: 'decode-acceleration', cols: 6, rows: 4 },
-  { id: 'token-volume', cols: 6, rows: 5 },
-  { id: 'live-pulse', cols: 6, rows: 4 },
+  { id: 'cache-savings', cols: 4, rows: 5 },
+  { id: 'tool-reliability', cols: 7, rows: 6 },
+  { id: 'long-poles', cols: 5, rows: 6 },
+  { id: 'projects-leaderboard', cols: 5, rows: 5 },
+  { id: 'file-churn', cols: 4, rows: 5 },
+  { id: 'context-economics', cols: 3, rows: 5 },
+  { id: 'model-matrix', cols: 12, rows: 6 },
   { id: 'sessions-explorer', cols: 12, rows: 10 },
 ];
 
@@ -116,8 +118,10 @@ function formatSecs(secs) {
   if (!secs) return '0s';
   if (secs < 60) return Math.round(secs) + 's';
   const mins = Math.floor(secs / 60);
-  const rem = Math.round(secs % 60);
-  return mins + 'm ' + rem + 's';
+  if (mins < 60) return mins + 'm ' + Math.round(secs % 60) + 's';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm';
+  return Math.floor(hrs / 24) + 'd ' + (hrs % 24) + 'h';
 }
 
 function escapeHtml(str) {
@@ -138,6 +142,7 @@ function escapeHtml(str) {
 // ============================================================
 const PANEL_ARCHETYPES = {
   'kpi-strip':   { cols: 12, rows: 3,  minCols: 6, maxCols: 12, minRows: 3, maxRows: 5 },
+  'band':        { cols: 12, rows: 2,  minCols: 6, maxCols: 12, minRows: 2, maxRows: 3 },
   'stat':        { cols: 3,  rows: 3,  minCols: 2, maxCols: 6,  minRows: 2, maxRows: 4 },
   'line-chart':  { cols: 8,  rows: 5,  minCols: 4, maxCols: 12, minRows: 4, maxRows: 10 },
   'bar-list':    { cols: 4,  rows: 4,  minCols: 3, maxCols: 8,  minRows: 3, maxRows: 8 },
@@ -148,6 +153,17 @@ const PANEL_ARCHETYPES = {
 
 const PANEL_ARCHETYPE_BY_ID = {
   'kpi-banner': 'kpi-strip',
+  'coverage-strip': 'band',
+  'turn-time-budget': 'bar-list',
+  'decode-distribution': 'bar-list',
+  'outcome-ledger': 'bar-list',
+  'context-economics': 'status-grid',
+  'cache-savings': 'bar-list',
+  'tool-reliability': 'table',
+  'long-poles': 'bar-list',
+  'model-matrix': 'table',
+  'projects-leaderboard': 'bar-list',
+  'file-churn': 'bar-list',
   'tps-trend': 'line-chart',
   'token-volume': 'line-chart',
   'telemetry-table': 'table',
@@ -174,6 +190,61 @@ function archetypeLimits(panelId) {
 // PANEL REGISTRY - Scientific Observability Panels
 // ============================================================
 const PANEL_REGISTRY = {
+  'coverage-strip': {
+    id: 'coverage-strip', title: 'Coverage & Freshness', category: 'core', icon: '\uD83D\uDCCB',
+    description: 'What this dashboard is actually showing: session counts, turn counts and how many days really have data.',
+    defaultCol: 12, render: renderCoveragePanel,
+  },
+  'turn-time-budget': {
+    id: 'turn-time-budget', title: 'Turn Time Budget', category: 'perf', icon: '\u23F3',
+    description: 'Where agent wall clock goes: tool execution vs reasoning vs prefill/decode.',
+    defaultCol: 5, render: renderTimeBudgetPanel,
+  },
+  'decode-distribution': {
+    id: 'decode-distribution', title: 'Decode Speed Percentiles', category: 'perf', icon: '\uD83D\uDCC8',
+    description: 'Median, p90, p99 and peak per-turn decode rate - the honest answer to "how fast is it".',
+    defaultCol: 4, render: renderDecodeDistPanel,
+  },
+  'outcome-ledger': {
+    id: 'outcome-ledger', title: 'Outcomes & Failures', category: 'core', icon: '\uD83D\uDEA6',
+    description: 'How turns end, how often you kill the agent, and how often the provider errors.',
+    defaultCol: 3, render: renderOutcomePanel,
+  },
+  'context-economics': {
+    id: 'context-economics', title: 'Context Economics', category: 'analytics', icon: '\uD83D\uDCE6',
+    description: 'Peak context vs cumulative billed input, and how many times context was re-paid.',
+    defaultCol: 6, render: renderContextEconomicsPanel,
+  },
+  'cache-savings': {
+    id: 'cache-savings', title: 'Prefix Cache Savings', category: 'analytics', icon: '\uD83D\uDCBE',
+    description: 'Share of context served from cache instead of being re-encoded.',
+    defaultCol: 4, render: renderCacheSavingsPanel,
+  },
+  'tool-reliability': {
+    id: 'tool-reliability', title: 'Tool Reliability & Latency', category: 'analytics', icon: '\uD83D\uDD27',
+    description: 'Per-tool call counts, error rates and latency percentiles.',
+    defaultCol: 7, render: renderToolReliabilityPanel,
+  },
+  'long-poles': {
+    id: 'long-poles', title: 'Long-Pole Calls', category: 'perf', icon: '\uD83D\uDC0C',
+    description: 'The individual tool calls that consumed the most wall clock.',
+    defaultCol: 5, render: renderLongPolesPanel,
+  },
+  'model-matrix': {
+    id: 'model-matrix', title: 'Model Comparison', category: 'analytics', icon: '\uD83E\uDDEE',
+    description: 'Every model by speed, cache behaviour, error rate and context handling.',
+    defaultCol: 12, render: renderModelMatrixPanel,
+  },
+  'projects-leaderboard': {
+    id: 'projects-leaderboard', title: 'Projects', category: 'analytics', icon: '\uD83D\uDCC1',
+    description: 'Where effort landed, grouped by project record rather than directory string.',
+    defaultCol: 5, render: renderProjectsPanel,
+  },
+  'file-churn': {
+    id: 'file-churn', title: 'File Churn & Rework', category: 'analytics', icon: '\uD83D\uDD01',
+    description: 'Files the agent edited repeatedly - the clearest proxy for thrash.',
+    defaultCol: 4, render: renderFileChurnPanel,
+  },
   'kpi-banner': {
     id: 'kpi-banner',
     title: 'Key Telemetry Metrics',
@@ -413,6 +484,7 @@ function openDashboard(id, opts = {}) {
   fetchStats();
   fetchSessions();
   fetchTimeseries();
+  fetchDerived();
   announce(`Opened dashboard ${d.name}`);
 }
 
@@ -1018,70 +1090,55 @@ function renderDashboard() {
 
 // 1. KPI Hero Banner
 function renderKpiBanner(container, appState) {
-  const s = appState.stats || {};
-  const avgTps = (s.avg_decode_tps || 0).toFixed(1);
-  const peakTps = (s.peak_decode_tps || 0).toFixed(1);
-  const totalTokens = formatNum((s.tokens_output || 0) + (s.tokens_reasoning || 0));
-  const totalInput = formatNum(s.tokens_input || 0);
-  const totalSessions = s.total_sessions || 0;
-  const genTime = formatSecs(s.total_generation_seconds || 0);
+  const st = appState.stats || {};
+  const t = st.turn_metrics || {};
+
+  if (!appState.stats) {
+    container.innerHTML = stateBlock('empty', { title: 'Loading metrics', body: '' });
+    return;
+  }
+
+  const tile = (o) => `
+    <div class="stat" data-tone="${o.tone || 'neutral'}">
+      <p class="stat__value">
+        <span class="stat__num mono">${o.value}</span>${o.unit ? `<span class="stat__unit">${o.unit}</span>` : ''}
+      </p>
+      <h3 class="stat__label">${escapeHtml(o.label)}</h3>
+      <p class="stat__note">${o.note}</p>
+    </div>
+  `;
 
   container.innerHTML = `
-    <div class="hero-metrics" style="margin-bottom:0;">
-      <div class="metric-card accent-acid">
-        <div class="metric-label">
-          <span>Avg Generation Speed</span>
-          <span>⚡</span>
-        </div>
-        <div class="metric-value mono">
-          <span>${avgTps}</span><span class="metric-unit">tok/s</span>
-        </div>
-        <div class="metric-meta">Across all completed turns</div>
-      </div>
-
-      <div class="metric-card accent-pink">
-        <div class="metric-label">
-          <span>Peak Measured Speed</span>
-          <span>🚀</span>
-        </div>
-        <div class="metric-value mono">
-          <span>${peakTps}</span><span class="metric-unit">tok/s</span>
-        </div>
-        <div class="metric-meta">Maximum decode burst</div>
-      </div>
-
-      <div class="metric-card accent-cyan">
-        <div class="metric-label">
-          <span>Total Output Tokens</span>
-          <span>✨</span>
-        </div>
-        <div class="metric-value mono">
-          <span>${totalTokens}</span>
-        </div>
-        <div class="metric-meta">Generated response content</div>
-      </div>
-
-      <div class="metric-card accent-amber">
-        <div class="metric-label">
-          <span>Total Context Input</span>
-          <span>📥</span>
-        </div>
-        <div class="metric-value mono">
-          <span>${totalInput}</span>
-        </div>
-        <div class="metric-meta">Prefilled prompt tokens</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-label">
-          <span>Recorded Sessions</span>
-          <span>📂</span>
-        </div>
-        <div class="metric-value mono">
-          <span>${totalSessions}</span>
-        </div>
-        <div class="metric-meta">Active time: <strong style="color:var(--text-main);">${genTime}</strong></div>
-      </div>
+    <div class="kpi-strip">
+      ${tile({
+        tone: 'primary',
+        value: t.decode_tps_p50 != null ? t.decode_tps_p50 : dash(),
+        unit: 'tok/s',
+        label: 'Typical decode speed',
+        note: `median per turn \u00b7 p90 ${t.decode_tps_p90 || 0} \u00b7 peak ${t.decode_tps_peak || 0}`,
+      })}
+      ${tile({
+        value: formatSecs(t.agent_wall_clock_s || 0),
+        label: 'Agent wall clock',
+        note: t.agent_wall_clock_s
+          ? `${Math.round((t.tool_time_s / t.agent_wall_clock_s) * 100)}% tools \u00b7 ${Math.round((t.reasoning_time_s / t.agent_wall_clock_s) * 100)}% reasoning`
+          : 'no timed turns',
+      })}
+      ${tile({
+        value: formatNum(t.tokens_generated || 0),
+        label: 'Tokens generated',
+        note: `across ${formatNum(t.turns_with_speed || 0)} productive turns`,
+      })}
+      ${tile({
+        value: formatNum(t.context_peak || 0),
+        label: 'Peak context carried',
+        note: `${formatNum(t.tokens_billed_input || 0)} billed in \u00b7 ${t.cache_hit_ratio || 0}% cached`,
+      })}
+      ${tile({
+        value: t.sessions_root != null ? t.sessions_root : (st.total_sessions || 0),
+        label: 'Sessions',
+        note: `+${t.sessions_subagent || 0} subagent runs \u00b7 ${t.active_days || 0} active days`,
+      })}
     </div>
   `;
 }
@@ -1798,6 +1855,321 @@ function renderLivePulsePanel(container, appState) {
   `;
 }
 
+
+// ---- Coverage strip: what am I actually looking at? ----
+function renderCoveragePanel(container, appState) {
+  const st = appState.stats || {};
+  const t = st.turn_metrics || {};
+  const live = appState.live || {};
+  const engines = ['mlx', 'ollama', 'openclaw'].filter(k => live[k] && live[k].online);
+
+  const chip = (label, tone) => `<span class="cov-chip" data-tone="${tone || 'neutral'}">${label}</span>`;
+
+  container.innerHTML = `
+    <div class="coverage-strip">
+      ${chip(`<strong>${t.sessions_root || 0}</strong> root sessions`, 'primary')}
+      ${chip(`+${t.sessions_subagent || 0} subagent`)}
+      ${chip(`<strong>${t.turns_total || 0}</strong> turns`)}
+      ${chip(`${t.active_days || 0} active days`)}
+      ${chip(`${(t.turns_total || 0) - (t.turns_with_speed || 0)} turns without a speed sample`, 'warn')}
+      ${chip(engines.length ? `${engines.length} engine${engines.length === 1 ? '' : 's'} online` : 'all engines offline',
+             engines.length ? 'good' : 'neutral')}
+    </div>
+  `;
+}
+
+// ---- Turn time budget: where did the hours go? ----
+function renderTimeBudgetPanel(container, appState) {
+  const t = (appState.stats || {}).turn_metrics || {};
+  const total = t.agent_wall_clock_s || 0;
+  if (!total) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No timed turns in this window',
+      body: 'The time budget needs assistant turns with both a start and a completion timestamp.',
+    });
+    return;
+  }
+  const seg = (label, secs, tone) => {
+    const pct = (secs / total) * 100;
+    return { label, secs, pct, tone };
+  };
+  const parts = [
+    seg('Tool execution', t.tool_time_s || 0, 'warn'),
+    seg('Reasoning', t.reasoning_time_s || 0, 'primary'),
+    seg('Prefill, decode & queue', t.residual_time_s || 0, 'good'),
+  ];
+
+  container.innerHTML = `
+    <div class="panel-pad">
+      <div class="stacked-bar" role="img" aria-label="Share of agent wall clock by phase">
+        ${parts.map(p => `<div class="stacked-bar__seg" style="width:${p.pct}%;background:var(--tone-${p.tone});" title="${p.label}"></div>`).join('')}
+      </div>
+      <ul class="legend-list">
+        ${parts.map(p => `
+          <li class="legend-list__item">
+            <span class="legend-list__swatch" style="background:var(--tone-${p.tone});"></span>
+            <span class="legend-list__label">${p.label}</span>
+            <span class="legend-list__val mono">${p.pct.toFixed(1)}%</span>
+            <span class="legend-list__sub mono">${formatSecs(p.secs)}</span>
+          </li>`).join('')}
+      </ul>
+      <p class="panel-note">Residual is prefill, answer decode and queue combined \u2013 OpenCode records no time-to-first-token, so prefill cannot be separated out.</p>
+    </div>
+  `;
+}
+
+// ---- Decode distribution: how fast is it really? ----
+function renderDecodeDistPanel(container, appState) {
+  const t = (appState.stats || {}).turn_metrics || {};
+  if (!t.turns_with_speed) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No speed samples in this window',
+      body: 'Decode speed is measured per assistant turn that produced output.',
+      action: { label: 'Widen to All time', onclick: "setTimeWindow('all')" },
+    });
+    return;
+  }
+  container.innerHTML = `
+    <div class="panel-pad">
+      <div class="pct-rail">
+        ${[['p50', t.decode_tps_p50, 'primary'], ['p90', t.decode_tps_p90, 'good'], ['p99', t.decode_tps_p99, 'warn'], ['peak', t.decode_tps_peak, 'bad']]
+          .map(([k, v, tone]) => `
+            <div class="pct-rail__row">
+              <span class="pct-rail__key mono">${k}</span>
+              <div class="bar-row-track"><div class="bar-row-fill" style="width:${Math.min((v / (t.decode_tps_peak || 1)) * 100, 100)}%;background:var(--tone-${tone});"></div></div>
+              <span class="pct-rail__val mono">${v} tok/s</span>
+            </div>`).join('')}
+      </div>
+      <p class="panel-note">
+        Measured over ${formatNum(t.turns_with_speed)} turns. End-to-end throughput including tool time is
+        <strong>${t.throughput_end_to_end} tok/s</strong> \u2013 a different question, not a slower answer.
+      </p>
+    </div>
+  `;
+}
+
+// ---- Outcome ledger ----
+function renderOutcomePanel(container, appState) {
+  const t = (appState.stats || {}).turn_metrics || {};
+  const counts = t.outcome_counts || {};
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (!total) {
+    container.innerHTML = stateBlock('empty', { title: 'No turns in this window', body: 'Outcomes are recorded per assistant turn.' });
+    return;
+  }
+  const toneFor = k => (k === 'stop' ? 'good' : k === 'incomplete' ? 'warn' : k === 'tool-calls' ? 'primary' : 'neutral');
+  const errs = t.error_counts || {};
+  container.innerHTML = `
+    <div class="panel-pad">
+      <div class="stacked-bar">
+        ${Object.entries(counts).map(([k, v]) => `<div class="stacked-bar__seg" style="width:${v / total * 100}%;background:var(--tone-${toneFor(k)});" title="${k}: ${v}"></div>`).join('')}
+      </div>
+      <ul class="legend-list">
+        ${Object.entries(counts).map(([k, v]) => `
+          <li class="legend-list__item">
+            <span class="legend-list__swatch" style="background:var(--tone-${toneFor(k)});"></span>
+            <span class="legend-list__label">${escapeHtml(k)}</span>
+            <span class="legend-list__val mono">${v}</span>
+          </li>`).join('')}
+      </ul>
+      <p class="panel-callout" data-tone="${t.abort_rate > 3 ? 'warn' : 'neutral'}">
+        <strong>${t.abort_rate}%</strong> of turns were killed by you
+        (${errs.MessageAbortedError || 0} aborts)${(errs.APIError || errs.UnknownError) ? `, plus ${(errs.APIError || 0) + (errs.UnknownError || 0)} provider errors` : ''}.
+      </p>
+    </div>
+  `;
+}
+
+// ---- Context economics ----
+function renderContextEconomicsPanel(container, appState) {
+  const t = (appState.stats || {}).turn_metrics || {};
+  if (!t.turns_total) {
+    container.innerHTML = stateBlock('empty', { title: 'No turns in this window', body: '' });
+    return;
+  }
+  const resend = t.context_peak ? (t.tokens_billed_input / t.context_peak) : 0;
+  container.innerHTML = `
+    <div class="panel-pad">
+      <div class="duo-grid">
+        <div class="pulse-box">
+          <div class="pulse-box-title">Peak context</div>
+          <div class="pulse-box-val mono">${formatNum(t.context_peak)}</div>
+          <div class="pulse-box-sub">largest single turn</div>
+        </div>
+        <div class="pulse-box">
+          <div class="pulse-box-title">Billed input</div>
+          <div class="pulse-box-val mono">${formatNum(t.tokens_billed_input)}</div>
+          <div class="pulse-box-sub">context resent every turn</div>
+        </div>
+      </div>
+      <p class="panel-callout" data-tone="neutral">
+        Context was re-paid <strong>${resend.toFixed(1)}\u00d7</strong> over this window.
+        Every turn resends the whole conversation, so billed input is not the size of your context.
+      </p>
+    </div>
+  `;
+}
+
+// ---- Cache savings ----
+function renderCacheSavingsPanel(container, appState) {
+  const t = (appState.stats || {}).turn_metrics || {};
+  const served = t.tokens_cache_read || 0;
+  const billed = t.tokens_billed_input || 0;
+  if (!served && !billed) {
+    container.innerHTML = stateBlock('empty', { title: 'No context recorded', body: '' });
+    return;
+  }
+  const pct = t.cache_hit_ratio || 0;
+  container.innerHTML = `
+    <div class="panel-pad">
+      <div class="stat-inline">
+        <span class="stat-inline__label">Context served from cache</span>
+        <span class="stat-inline__value mono">${pct}%</span>
+      </div>
+      <div class="stacked-bar">
+        <div class="stacked-bar__seg" style="width:${pct}%;background:var(--tone-good);" title="from cache"></div>
+        <div class="stacked-bar__seg" style="width:${100 - pct}%;background:var(--surface-4);" title="re-encoded"></div>
+      </div>
+      <ul class="legend-list">
+        <li class="legend-list__item">
+          <span class="legend-list__swatch" style="background:var(--tone-good);"></span>
+          <span class="legend-list__label">Reused from cache</span>
+          <span class="legend-list__val mono">${formatNum(served)}</span>
+        </li>
+        <li class="legend-list__item">
+          <span class="legend-list__swatch" style="background:var(--surface-4);"></span>
+          <span class="legend-list__label">Re-encoded</span>
+          <span class="legend-list__val mono">${formatNum(billed)}</span>
+        </li>
+      </ul>
+    </div>
+  `;
+}
+
+// ---- Tool reliability ----
+function renderToolReliabilityPanel(container, appState) {
+  const rows = appState.tools || [];
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', { title: 'No tool calls in this window', body: 'Tool timing comes from recorded tool parts.' });
+    return;
+  }
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Tool</th><th class="num">Calls</th><th class="num">Err</th><th class="num">p50</th><th class="num">p95</th><th class="num">Share</th></tr>
+        </thead>
+        <tbody>
+          ${rows.slice(0, 12).map(r => `
+            <tr>
+              <td class="mono">${escapeHtml(r.name)}</td>
+              <td class="num mono">${r.calls}</td>
+              <td class="num mono" style="color:${r.error_rate > 10 ? 'var(--tone-bad)' : r.error_rate > 0 ? 'var(--tone-warn)' : 'var(--text-sub)'};">${r.error_rate}%</td>
+              <td class="num mono">${r.p50_s}s</td>
+              <td class="num mono">${r.p95_s}s</td>
+              <td class="num mono">${r.pct_of_tool_time}%</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ---- Long-pole calls ----
+function renderLongPolesPanel(container, appState) {
+  const rows = appState.longPoles || [];
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', { title: 'No tool calls in this window', body: '' });
+    return;
+  }
+  const worst = rows[0].duration_s || 1;
+  container.innerHTML = `
+    <div class="panel-pad">
+      ${rows.map(r => `
+        <div class="bar-row-item">
+          <span class="bar-row-label mono" title="${escapeHtml(r.folder)}">${escapeHtml(r.tool)}</span>
+          <div class="bar-row-track">
+            <div class="bar-row-fill" style="width:${(r.duration_s / worst) * 100}%;background:var(--tone-${r.status === 'error' ? 'bad' : 'warn'});"></div>
+          </div>
+          <span class="bar-row-val mono">${formatSecs(r.duration_s)}</span>
+        </div>`).join('')}
+      <p class="panel-note">Single calls, longest first. A call that ran for hours sets your headline throughput on its own.</p>
+    </div>
+  `;
+}
+
+// ---- Model comparison matrix ----
+function renderModelMatrixPanel(container, appState) {
+  const rows = appState.models || [];
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', { title: 'No model activity in this window', body: '' });
+    return;
+  }
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Model</th><th class="num">Turns</th><th class="num">p50</th><th class="num">p95</th><th class="num">Cache</th><th class="num">Err</th><th class="num">Median ctx</th></tr>
+        </thead>
+        <tbody>
+          ${rows.map(m => `
+            <tr>
+              <td class="mono">${escapeHtml(m.name)}</td>
+              <td class="num mono">${m.turns}</td>
+              <td class="num mono">${m.p50_tps}</td>
+              <td class="num mono">${m.p95_tps}</td>
+              <td class="num mono">${m.cache_ratio}%</td>
+              <td class="num mono" style="color:${m.error_rate > 8 ? 'var(--tone-bad)' : 'var(--text-sub)'};">${m.error_rate}%</td>
+              <td class="num mono">${formatNum(m.context_median)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ---- Projects leaderboard ----
+function renderProjectsPanel(container, appState) {
+  const rows = appState.projects || [];
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', { title: 'No project activity in this window', body: '' });
+    return;
+  }
+  const worst = Math.max(...rows.map(r => r.turns), 1);
+  container.innerHTML = `
+    <div class="panel-pad">
+      ${rows.slice(0, 8).map(r => `
+        <div class="bar-row-item">
+          <span class="bar-row-label mono" title="${escapeHtml(r.worktree)}">${escapeHtml(r.name)}</span>
+          <div class="bar-row-track"><div class="bar-row-fill" style="width:${(r.turns / worst) * 100}%;background:var(--tone-primary);"></div></div>
+          <span class="bar-row-val mono">${r.turns}</span>
+        </div>`).join('')}
+      <p class="panel-note">Grouped by project record, not by directory string \u2013 one project no longer splits into several rows.</p>
+    </div>
+  `;
+}
+
+// ---- File churn / rework ----
+function renderFileChurnPanel(container, appState) {
+  const rows = appState.fileChurn || [];
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', { title: 'No file edits in this window', body: 'Churn counts edit and write tool calls per file path.' });
+    return;
+  }
+  const worst = rows[0].edits || 1;
+  container.innerHTML = `
+    <div class="panel-pad">
+      ${rows.slice(0, 10).map(r => `
+        <div class="bar-row-item">
+          <span class="bar-row-label mono" title="${escapeHtml(r.path)}">${escapeHtml(r.name)}</span>
+          <div class="bar-row-track"><div class="bar-row-fill" style="width:${(r.edits / worst) * 100}%;background:var(--tone-${r.edits > 5 ? 'warn' : 'primary'});"></div></div>
+          <span class="bar-row-val mono">${r.edits}\u00d7</span>
+        </div>`).join('')}
+      <p class="panel-note">Repeat edits to one file are the clearest available proxy for agent thrash.</p>
+    </div>
+  `;
+}
+
 // 14. Session Duration Distribution
 function renderDurationDistPanel(container, appState) {
   const buckets = appState.stats?.duration_buckets || {};
@@ -1970,15 +2342,18 @@ function renderGallery() {
 // ============================================================
 // DATA FETCHING & API INTEGRATIONS
 // ============================================================
+function buildQueryString() {
+  const params = new URLSearchParams();
+  if (state.activeFilter.window) params.set('window', state.activeFilter.window);
+  if (state.activeFilter.from) params.set('from', state.activeFilter.from);
+  if (state.activeFilter.to) params.set('to', state.activeFilter.to);
+  if (state.activeFilter.harness) params.set('harness', state.activeFilter.harness);
+  return params.toString() ? '?' + params.toString() : '';
+}
+
 async function fetchStats() {
   try {
-    const params = new URLSearchParams();
-    if (state.activeFilter.window) params.set('window', state.activeFilter.window);
-    if (state.activeFilter.from) params.set('from', state.activeFilter.from);
-    if (state.activeFilter.to) params.set('to', state.activeFilter.to);
-    if (state.activeFilter.harness) params.set('harness', state.activeFilter.harness);
-
-    const queryStr = params.toString() ? '?' + params.toString() : '';
+    const queryStr = buildQueryString();
     const res = await fetch('/api/stats' + queryStr);
     state.stats = await res.json();
     if (state.stats.live) {
@@ -1990,7 +2365,50 @@ async function fetchStats() {
     renderSystemInfo();
   } catch (err) {
     console.error('Failed to load stats', err);
+    state.errors = Object.assign({}, state.errors, { stats: String(err) });
   }
+}
+
+// The turn-derived datasets share one grain, so they are fetched together and
+// a failure in one does not blank the others.
+async function fetchDerived() {
+  const qs = buildQueryString();
+  const grab = async (path, key) => {
+    try {
+      const res = await fetch(path + qs);
+      state[key] = await res.json();
+      state.errors = Object.assign({}, state.errors, { [key]: null });
+    } catch (err) {
+      state.errors = Object.assign({}, state.errors, { [key]: String(err) });
+    }
+  };
+  await Promise.all([
+    grab('/api/tools', 'tools'),
+    grab('/api/models', 'models'),
+    grab('/api/projects', 'projects'),
+  ]);
+  deriveFromProjects();
+  refreshActivePage();
+}
+
+// File churn and long poles are cheap client-side rollups of data already
+// fetched, rather than two more round trips.
+function deriveFromProjects() {
+  const counts = {};
+  (state.projects || []).forEach(p => {
+    (p.top_files || []).forEach(f => {
+      counts[f.path] = (counts[f.path] || 0) + f.edits;
+    });
+  });
+  state.fileChurn = Object.entries(counts)
+    .map(([path, edits]) => ({ path, name: path.split('/').pop(), edits }))
+    .sort((a, b) => b.edits - a.edits);
+
+  const calls = [];
+  (state.tools || []).forEach(t => {
+    if (t.max_s > 0) calls.push({ tool: t.name, status: t.errors ? 'error' : 'completed', duration_s: t.max_s, folder: '' });
+  });
+  state.longPoles = calls.sort((a, b) => b.duration_s - a.duration_s).slice(0, 8);
 }
 
 async function fetchLiveStatus() {
@@ -2055,6 +2473,7 @@ async function fetchSessions() {
     const res = await fetch('/api/sessions?' + params.toString());
     state.sessions = await res.json();
     renderSessionsList();
+    if (state.activePage && state.activePage !== 'observatory') refreshActivePage();
   } catch (err) {
     console.error('Failed to load sessions', err);
   }
@@ -2612,6 +3031,172 @@ registerPage({
   },
 });
 
+// ---- Engines: the only page whose data is ephemeral and often absent, so
+// offline is a designed state here rather than an accident. ----
+registerPage({
+  id: 'engines',
+  title: 'Engines',
+  icon: '\uD83D\uDEF0\uFE0F',
+  navSection: 'analysis',
+  toolbar: [],
+  mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Local Engines</h1><p class="page-sub">Live inference servers. Everything here is measured in real time and is unavailable while a server is down.</p></div><div class="dashboard-grid" id="enginesGrid"></div>'; },
+  refresh() {
+    const grid = document.getElementById('enginesGrid');
+    if (!grid) return;
+    const panels = [
+      ['live-pulse', 12, 4],
+      ['speculative-burst', 6, 5],
+      ['decode-acceleration', 6, 5],
+      ['prefill-vs-decode', 6, 4],
+      ['ttft-latency', 6, 4],
+      ['apc-cache', 6, 4],
+      ['telemetry-table', 12, 8],
+    ];
+    grid.innerHTML = panels.map(([id, c, r]) => {
+      const def = PANEL_REGISTRY[id];
+      return def ? `
+        <div class="dashboard-panel" style="--panel-cols:${c};--panel-rows:${r};">
+          <div class="panel-header"><div class="panel-title-wrap">
+            <span class="panel-icon">${def.icon}</span><span>${escapeHtml(def.title)}</span>
+          </div></div>
+          <div class="panel-body" id="panel-body-${id}"></div>
+        </div>` : '';
+    }).join('');
+    panels.forEach(([id]) => {
+      const def = PANEL_REGISTRY[id];
+      const c = document.getElementById('panel-body-' + id);
+      if (def && c) def.render(c, state, {});
+    });
+  },
+});
+
+// ---- Tools: 770 calls across 15 tools with per-call timing is a dataset,
+// and tools are 35% of agent wall clock - the largest controllable cost. ----
+registerPage({
+  id: 'tools',
+  title: 'Tools',
+  icon: '\uD83D\uDD27',
+  navSection: 'analysis',
+  toolbar: ['timeWindow'],
+  mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Tools</h1><p class="page-sub">Where agent wall clock actually goes, and which tools fail.</p></div><div id="toolsBody"></div>'; },
+  refresh() {
+    const host = document.getElementById('toolsBody');
+    if (!host) return;
+    const rows = state.tools || [];
+    if (!rows.length) { host.innerHTML = stateBlock('empty', { title: 'No tool calls in this window', body: 'Widen the time window to see recorded tool activity.' }); return; }
+
+    const totalCalls = rows.reduce((a, r) => a + r.calls, 0);
+    const totalErrs = rows.reduce((a, r) => a + r.errors, 0);
+    const totalTime = rows.reduce((a, r) => a + r.total_s, 0);
+    const worstTool = rows.slice().sort((a, b) => b.error_rate - a.error_rate)[0];
+
+    host.innerHTML = `
+      <div class="kpi-strip" style="margin-block-end:1.25rem;">
+        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${formatNum(totalCalls)}</span></p><h3 class="stat__label">Tool calls</h3><p class="stat__note">across ${rows.length} distinct tools</p></div>
+        <div class="stat" data-tone="${totalErrs ? 'warn' : 'good'}"><p class="stat__value"><span class="stat__num mono">${totalErrs}</span></p><h3 class="stat__label">Failed calls</h3><p class="stat__note">${(totalErrs / (totalCalls || 1) * 100).toFixed(1)}% of all calls</p></div>
+        <div class="stat"><p class="stat__value"><span class="stat__num mono">${formatSecs(totalTime)}</span></p><h3 class="stat__label">Time in tools</h3><p class="stat__note">summed call duration</p></div>
+        <div class="stat" data-tone="${worstTool && worstTool.error_rate > 20 ? 'bad' : 'neutral'}"><p class="stat__value"><span class="stat__num mono">${worstTool ? worstTool.error_rate + '%' : dash()}</span></p><h3 class="stat__label">Worst error rate</h3><p class="stat__note mono">${worstTool ? escapeHtml(worstTool.name) : ''}</p></div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="dashboard-panel" style="--panel-cols:7;--panel-rows:9;">
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD27</span><span>Reliability &amp; latency</span></div></div>
+          <div class="panel-body" id="toolsTable"></div>
+        </div>
+        <div class="dashboard-panel" style="--panel-cols:5;--panel-rows:9;">
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDC0C</span><span>Longest single calls</span></div></div>
+          <div class="panel-body" id="toolsPoles"></div>
+        </div>
+      </div>
+    `;
+    renderToolReliabilityPanel(document.getElementById('toolsTable'), state);
+    renderLongPolesPanel(document.getElementById('toolsPoles'), state);
+  },
+});
+
+// ---- Models: 9 models by 8 metrics is a matrix, not a chart, and model
+// choice is the highest-leverage decision when running local agents. ----
+registerPage({
+  id: 'models',
+  title: 'Models',
+  icon: '\uD83E\uDDEE',
+  navSection: 'analysis',
+  toolbar: ['timeWindow'],
+  mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Models</h1><p class="page-sub">Speed, cache behaviour, reliability and context handling per model.</p></div><div id="modelsBody"></div>'; },
+  refresh() {
+    const host = document.getElementById('modelsBody');
+    if (!host) return;
+    const rows = state.models || [];
+    if (!rows.length) { host.innerHTML = stateBlock('empty', { title: 'No model activity in this window', body: '' }); return; }
+    const fastest = rows.slice().sort((a, b) => b.p50_tps - a.p50_tps)[0];
+    const cachiest = rows.slice().sort((a, b) => b.cache_ratio - a.cache_ratio)[0];
+
+    host.innerHTML = `
+      <div class="kpi-strip" style="margin-block-end:1.25rem;">
+        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${rows.length}</span></p><h3 class="stat__label">Models used</h3><p class="stat__note">in this window</p></div>
+        <div class="stat" data-tone="good"><p class="stat__value"><span class="stat__num mono">${fastest.p50_tps}</span><span class="stat__unit">tok/s</span></p><h3 class="stat__label">Fastest median</h3><p class="stat__note mono">${escapeHtml(fastest.name)}</p></div>
+        <div class="stat"><p class="stat__value"><span class="stat__num mono">${cachiest.cache_ratio}%</span></p><h3 class="stat__label">Best cache reuse</h3><p class="stat__note mono">${escapeHtml(cachiest.name)}</p></div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="dashboard-panel" style="--panel-cols:12;--panel-rows:9;">
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83E\uDDEE</span><span>Comparison matrix</span></div></div>
+          <div class="panel-body" id="modelsTable"></div>
+        </div>
+      </div>
+    `;
+    renderModelMatrixPanel(document.getElementById('modelsTable'), state);
+  },
+});
+
+// ---- Projects: the "was this worth it" view - the only page organised
+// around intent rather than machine behaviour. ----
+registerPage({
+  id: 'projects',
+  title: 'Projects',
+  icon: '\uD83D\uDCC1',
+  navSection: 'analysis',
+  toolbar: ['timeWindow'],
+  mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Projects</h1><p class="page-sub">Where effort landed, and which files the agent kept revisiting.</p></div><div id="projectsBody"></div>'; },
+  refresh() {
+    const host = document.getElementById('projectsBody');
+    if (!host) return;
+    const rows = state.projects || [];
+    if (!rows.length) { host.innerHTML = stateBlock('empty', { title: 'No project activity in this window', body: '' }); return; }
+
+    host.innerHTML = `
+      <div class="dashboard-grid" style="margin-block-end:1.25rem;">
+        <div class="dashboard-panel" style="--panel-cols:5;--panel-rows:7;">
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDCC1</span><span>Effort by project</span></div></div>
+          <div class="panel-body" id="projLeader"></div>
+        </div>
+        <div class="dashboard-panel" style="--panel-cols:7;--panel-rows:7;">
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD01</span><span>Most re-edited files</span></div></div>
+          <div class="panel-body" id="projChurn"></div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Project</th><th class="num">Sessions</th><th class="num">Turns</th><th class="num">Generated</th><th class="num">Active</th><th class="num">Files</th><th class="num">Err</th><th>Top model</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td class="mono" title="${escapeHtml(r.worktree)}">${escapeHtml(r.name)}</td>
+                <td class="num mono">${r.sessions}</td>
+                <td class="num mono">${r.turns}</td>
+                <td class="num mono">${formatNum(r.tokens_output)}</td>
+                <td class="num mono">${formatSecs(r.active_s)}</td>
+                <td class="num mono">${r.files_touched}</td>
+                <td class="num mono" style="color:${r.error_rate > 8 ? 'var(--tone-bad)' : 'var(--text-sub)'};">${r.error_rate}%</td>
+                <td class="mono">${r.top_models.length ? escapeHtml(r.top_models[0][0]) : dash()}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    renderProjectsPanel(document.getElementById('projLeader'), state);
+    renderFileChurnPanel(document.getElementById('projChurn'), state);
+  },
+});
+
 registerPage({
   id: 'settings',
   title: 'Settings & Theme',
@@ -2789,6 +3374,7 @@ window.addEventListener('DOMContentLoaded', () => {
   fetchStats();
   fetchTimeseries();
   fetchSessions();
+  fetchDerived();
   fetchLiveStatus();
   setInterval(fetchLiveStatus, 3500);
 });

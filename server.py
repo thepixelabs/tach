@@ -390,6 +390,48 @@ def get_harness_inventory():
     ]
 
 
+WINDOW_MS = {
+    "10m": 10 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "6h": 6 * 60 * 60 * 1000,
+    "12h": 12 * 60 * 60 * 1000,
+    "1d": 24 * 60 * 60 * 1000,
+    "3d": 3 * 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
+    "14d": 14 * 24 * 60 * 60 * 1000,
+    "30d": 30 * 24 * 60 * 60 * 1000,
+    "90d": 90 * 24 * 60 * 60 * 1000,
+}
+
+
+def resolve_window(query_params):
+    """Shared time-window resolution: a named window, or an explicit range."""
+    if not query_params:
+        return None, None
+
+    now_ms = int(time.time() * 1000)
+    window = query_params.get("window", [""])[0]
+    if window:
+        delta = WINDOW_MS.get(window)
+        return (now_ms - delta, now_ms) if delta else (None, None)
+
+    start_ms = end_ms = None
+    date_from = query_params.get("from", [""])[0]
+    date_to = query_params.get("to", [""])[0]
+    if date_from:
+        try:
+            start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            end_ms = int(datetime.strptime(date_to, "%Y-%m-%d")
+                         .replace(hour=23, minute=59, second=59).timestamp() * 1000)
+        except ValueError:
+            pass
+    return start_ms, end_ms
+
+
 def get_all_stats(query_params=None):
     harness_filter = query_params.get("harness", [""])[0].lower() if query_params else ""
 
@@ -528,6 +570,18 @@ def get_all_stats(query_params=None):
 
     c.execute(f"SELECT COUNT(*) FROM session {where_sess};", sess_params)
     total_sessions = c.fetchone()[0]
+
+    # 19 of 53 sessions are subagent children; counting them as sessions
+    # inflates every per-session figure.
+    joiner = "AND" if where_sess else "WHERE"
+    c.execute(f"SELECT COUNT(*) FROM session {where_sess} {joiner} parent_id IS NULL;", sess_params)
+    sessions_root = c.fetchone()[0]
+    sessions_subagent = total_sessions - sessions_root
+
+    # A trend line over 10 active days spread across 88 calendar days should
+    # say so rather than draw a confident curve.
+    c.execute(f"SELECT COUNT(DISTINCT date(time_created/1000, 'unixepoch')) FROM session {where_sess};", sess_params)
+    active_days = c.fetchone()[0]
 
     # Filter messages strictly by the sessions within the time window
     if start_ms and end_ms:
@@ -783,10 +837,30 @@ def get_all_stats(query_params=None):
         model_shares.sort(key=lambda m: m["session_count"], reverse=True)
         directories.sort(key=lambda d: d["count"], reverse=True)
 
+    # Corrected metrics from the turn grain. avg_decode_tps divides output by
+    # end-to-end turn latency including tool time, so it answers a different
+    # question from "how fast does this model decode"; both are published, each
+    # under its own name.
+    turn_summary = {}
+    try:
+        tconn = get_db_connection()
+        if tconn:
+            try:
+                _turns = build_turns(tconn, start_ms, end_ms)
+                turn_summary = summarize_turns(_turns)
+                turn_summary["sessions_root"] = sessions_root
+                turn_summary["sessions_subagent"] = sessions_subagent
+                turn_summary["active_days"] = active_days
+            finally:
+                tconn.close()
+    except Exception:
+        turn_summary = {}
+
     # Discovered Harnesses
     harnesses = get_harness_inventory()
 
     return {
+        "turn_metrics": turn_summary,
         "total_sessions": total_sessions,
         "total_messages": total_messages,
         "tokens_input": sum_in,
@@ -1561,6 +1635,370 @@ def get_sessions(query_params):
     return results
 
 
+# ============================================================
+# TURN-LEVEL AGGREGATION
+# The missing grain. Session rows cannot answer "where did the time go" or
+# "how fast is decode really", because a session's duration is wall clock
+# including overnight idle, and its tps divides output by end-to-end turn
+# latency - which contains tool execution. One pass over message + part
+# produces the turn table every corrected metric derives from.
+# ============================================================
+
+def _percentile(sorted_vals, pct):
+    if not sorted_vals:
+        return 0.0
+    if len(sorted_vals) == 1:
+        return float(sorted_vals[0])
+    k = (len(sorted_vals) - 1) * (pct / 100.0)
+    lo, hi = int(k), min(int(k) + 1, len(sorted_vals) - 1)
+    return float(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (k - lo))
+
+
+def build_turns(conn, start_ms=None, end_ms=None):
+    """
+    One row per assistant turn, with its time split into tool / reasoning /
+    residual. Residual is prefill + answer decode + queue; OpenCode records no
+    TTFT, so prefill cannot be separated out and the field is named honestly.
+    """
+    c = conn.cursor()
+
+    where, params = "", []
+    if start_ms and end_ms:
+        where = "WHERE m.time_created >= ? AND m.time_created <= ?"
+        params = [start_ms, end_ms]
+    elif start_ms:
+        where = "WHERE m.time_created >= ?"
+        params = [start_ms]
+
+    # Tool and reasoning spans, grouped by message in one pass rather than a
+    # query per turn.
+    c.execute("""
+        SELECT message_id,
+               json_extract(data, '$.type'),
+               json_extract(data, '$.tool'),
+               json_extract(data, '$.state.status'),
+               json_extract(data, '$.state.time.start'),
+               json_extract(data, '$.state.time.end'),
+               json_extract(data, '$.time.start'),
+               json_extract(data, '$.time.end'),
+               json_extract(data, '$.state.input.filePath')
+        FROM part
+        WHERE json_extract(data, '$.type') IN ('tool', 'reasoning')
+    """)
+
+    tool_by_msg = {}
+    reason_by_msg = {}
+    for mid, ptype, tool, status, ts, te, rs, re_, fpath in c.fetchall():
+        if ptype == "tool":
+            dur = ((te - ts) / 1000.0) if (ts and te and te > ts) else 0.0
+            tool_by_msg.setdefault(mid, []).append({
+                "tool": tool or "unknown",
+                "status": status or "unknown",
+                "duration_s": round(dur, 3),
+                "file": fpath,
+            })
+        else:
+            dur = ((re_ - rs) / 1000.0) if (rs and re_ and re_ > rs) else 0.0
+            reason_by_msg[mid] = reason_by_msg.get(mid, 0.0) + dur
+
+    c.execute(f"""
+        SELECT m.id, m.session_id, m.time_created, m.data, s.directory, s.project_id, s.parent_id
+        FROM message m
+        JOIN session s ON s.id = m.session_id
+        {where}
+        ORDER BY m.time_created ASC
+    """, params)
+
+    turns = []
+    for mid, sid, t_created, raw, directory, project_id, parent_id in c.fetchall():
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if d.get("role") != "assistant":
+            continue
+
+        t = d.get("time") or {}
+        created, completed = t.get("created"), t.get("completed")
+        duration_s = ((completed - created) / 1000.0) if (created and completed and completed > created) else 0.0
+
+        toks = d.get("tokens") or {}
+        cache = toks.get("cache") or {}
+        tok_in = int(toks.get("input") or 0)
+        tok_out = int(toks.get("output") or 0)
+        tok_reas = int(toks.get("reasoning") or 0)
+        tok_cache_read = int(cache.get("read") or 0)
+        tok_cache_write = int(cache.get("write") or 0)
+
+        tools = tool_by_msg.get(mid, [])
+        tool_time = sum(x["duration_s"] for x in tools)
+        reason_time = round(reason_by_msg.get(mid, 0.0), 3)
+        residual = max(0.0, duration_s - tool_time - reason_time)
+
+        generated = tok_out + tok_reas
+        decode_tps = round(generated / duration_s, 2) if (duration_s > 0.05 and generated) else 0.0
+
+        err = d.get("error") or {}
+        turns.append({
+            "turn_id": mid,
+            "session_id": sid,
+            "project_id": project_id,
+            "directory": sanitize_path(directory) if directory else None,
+            "folder": Path(directory).name if directory else "root",
+            "is_subagent": bool(parent_id),
+            "agent": d.get("agent"),
+            "mode": d.get("mode"),
+            "model": d.get("modelID"),
+            "provider": d.get("providerID"),
+            "time_created": created or t_created,
+            "duration_s": round(duration_s, 3),
+            "tool_time_s": round(tool_time, 3),
+            "reasoning_time_s": reason_time,
+            "residual_s": round(residual, 3),
+            "tokens_input": tok_in,
+            "tokens_output": tok_out,
+            "tokens_reasoning": tok_reas,
+            "tokens_cache_read": tok_cache_read,
+            "tokens_cache_write": tok_cache_write,
+            "context_size": tok_in + tok_cache_read,
+            "decode_tps": decode_tps,
+            "finish": d.get("finish"),
+            "error_name": err.get("name") if isinstance(err, dict) else None,
+            "cost": float(d.get("cost") or 0.0),
+            "tools": tools,
+        })
+
+    return turns
+
+
+def get_turns(query_params=None):
+    start_ms, end_ms = resolve_window(query_params)
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        return build_turns(conn, start_ms, end_ms)
+    finally:
+        conn.close()
+
+
+def summarize_turns(turns):
+    """Corrected speed and time metrics. Published alongside their definitions."""
+    rates = sorted(t["decode_tps"] for t in turns if t["decode_tps"] > 0)
+    wall = sum(t["duration_s"] for t in turns)
+    tool_s = sum(t["tool_time_s"] for t in turns)
+    reason_s = sum(t["reasoning_time_s"] for t in turns)
+    generated = sum(t["tokens_output"] + t["tokens_reasoning"] for t in turns)
+    billed_in = sum(t["tokens_input"] for t in turns)
+    cache_read = sum(t["tokens_cache_read"] for t in turns)
+
+    outcomes, errors = {}, {}
+    for t in turns:
+        outcomes[t["finish"] or "incomplete"] = outcomes.get(t["finish"] or "incomplete", 0) + 1
+        if t["error_name"]:
+            errors[t["error_name"]] = errors.get(t["error_name"], 0) + 1
+
+    return {
+        # Median per-turn generation rate. The headline speed number.
+        "decode_tps_p50": round(_percentile(rates, 50), 1),
+        "decode_tps_p90": round(_percentile(rates, 90), 1),
+        "decode_tps_p99": round(_percentile(rates, 99), 1),
+        "decode_tps_peak": round(rates[-1], 1) if rates else 0.0,
+        # Tokens per second of elapsed agent time, tools included. Not the same
+        # question as the median above, so it carries its own name.
+        "throughput_end_to_end": round(generated / wall, 2) if wall else 0.0,
+        "agent_wall_clock_s": round(wall, 1),
+        "tool_time_s": round(tool_s, 1),
+        "reasoning_time_s": round(reason_s, 1),
+        "residual_time_s": round(max(0.0, wall - tool_s - reason_s), 1),
+        "tokens_generated": generated,
+        "tokens_billed_input": billed_in,
+        "tokens_cache_read": cache_read,
+        "cache_hit_ratio": round(cache_read / (billed_in + cache_read) * 100, 1) if (billed_in + cache_read) else 0.0,
+        "context_peak": max((t["context_size"] for t in turns), default=0),
+        "turns_total": len(turns),
+        "turns_with_speed": len(rates),
+        "outcome_counts": outcomes,
+        "error_counts": errors,
+        "abort_rate": round(errors.get("MessageAbortedError", 0) / len(turns) * 100, 1) if turns else 0.0,
+    }
+
+
+def get_tool_stats(turns):
+    """Per-tool reliability and latency. Tools are the largest controllable cost."""
+    by_tool = {}
+    for t in turns:
+        for call in t["tools"]:
+            e = by_tool.setdefault(call["tool"], {"name": call["tool"], "calls": 0, "errors": 0, "durations": [], "total_s": 0.0})
+            e["calls"] += 1
+            if call["status"] == "error":
+                e["errors"] += 1
+            e["durations"].append(call["duration_s"])
+            e["total_s"] += call["duration_s"]
+
+    grand_total = sum(e["total_s"] for e in by_tool.values()) or 1.0
+    out = []
+    for e in by_tool.values():
+        ds = sorted(e["durations"])
+        out.append({
+            "name": e["name"],
+            "calls": e["calls"],
+            "errors": e["errors"],
+            "error_rate": round(e["errors"] / e["calls"] * 100, 1) if e["calls"] else 0.0,
+            "p50_s": round(_percentile(ds, 50), 2),
+            "p95_s": round(_percentile(ds, 95), 2),
+            "max_s": round(ds[-1], 2) if ds else 0.0,
+            "total_s": round(e["total_s"], 1),
+            "pct_of_tool_time": round(e["total_s"] / grand_total * 100, 1),
+            "is_mcp": "_" in e["name"] and not e["name"].islower() or e["name"].count("_") >= 2,
+        })
+    out.sort(key=lambda x: x["total_s"], reverse=True)
+    return out
+
+
+def get_long_poles(turns, limit=8):
+    """Individual calls that ate the most wall clock, with their outcome."""
+    calls = []
+    for t in turns:
+        for call in t["tools"]:
+            calls.append({
+                "tool": call["tool"],
+                "status": call["status"],
+                "duration_s": call["duration_s"],
+                "session_id": t["session_id"],
+                "folder": t["folder"],
+                "time_created": t["time_created"],
+            })
+    calls.sort(key=lambda x: x["duration_s"], reverse=True)
+    return calls[:limit]
+
+
+def get_model_matrix(turns):
+    by_model = {}
+    for t in turns:
+        name = f"{t['provider']}/{t['model']}" if t.get("provider") and t.get("model") else (t.get("model") or "unknown")
+        e = by_model.setdefault(name, {
+            "name": name, "turns": 0, "sessions": set(), "rates": [],
+            "tok_out": 0, "tok_in": 0, "cache_read": 0, "errors": 0, "contexts": [],
+        })
+        e["turns"] += 1
+        e["sessions"].add(t["session_id"])
+        if t["decode_tps"] > 0:
+            e["rates"].append(t["decode_tps"])
+        e["tok_out"] += t["tokens_output"] + t["tokens_reasoning"]
+        e["tok_in"] += t["tokens_input"]
+        e["cache_read"] += t["tokens_cache_read"]
+        if t["error_name"]:
+            e["errors"] += 1
+        e["contexts"].append(t["context_size"])
+
+    out = []
+    for e in by_model.values():
+        rates = sorted(e["rates"])
+        ctx = sorted(e["contexts"])
+        total_ctx = e["tok_in"] + e["cache_read"]
+        out.append({
+            "name": e["name"],
+            "sessions": len(e["sessions"]),
+            "turns": e["turns"],
+            "tokens_output": e["tok_out"],
+            "tokens_billed_input": e["tok_in"],
+            "tokens_cache_read": e["cache_read"],
+            "cache_ratio": round(e["cache_read"] / total_ctx * 100, 1) if total_ctx else 0.0,
+            "p50_tps": round(_percentile(rates, 50), 1),
+            "p95_tps": round(_percentile(rates, 95), 1),
+            "error_rate": round(e["errors"] / e["turns"] * 100, 1) if e["turns"] else 0.0,
+            "context_median": int(_percentile(ctx, 50)),
+            "context_peak": ctx[-1] if ctx else 0,
+        })
+    out.sort(key=lambda x: x["turns"], reverse=True)
+    return out
+
+
+def get_project_stats(turns):
+    """
+    Grouped by the project record rather than the raw directory string, which
+    splits one project into several rows.
+    """
+    conn = get_db_connection()
+    projects = {}
+    if conn:
+        try:
+            c = conn.cursor()
+            c.execute("SELECT id, worktree, vcs FROM project")
+            for pid, worktree, vcs in c.fetchall():
+                projects[pid] = {"worktree": worktree, "vcs": vcs}
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    by_proj = {}
+    for t in turns:
+        pid = t.get("project_id") or t.get("folder") or "unknown"
+        meta = projects.get(pid, {})
+        worktree = meta.get("worktree") or t.get("directory") or pid
+
+        # OpenCode files sessions run outside a git repo under a "global"
+        # project whose worktree is "/". Lumping them together hides real work,
+        # so they are split by the directory the session actually ran in.
+        if worktree in ("/", "", None):
+            worktree = t.get("directory") or "unknown"
+            pid = "dir:" + str(worktree)
+            meta = {}
+        e = by_proj.setdefault(pid, {
+            "project_id": pid,
+            "worktree": sanitize_path(worktree),
+            "name": (Path(worktree).name or str(worktree)) if worktree else pid,
+            "vcs": meta.get("vcs"),
+            "turns": 0, "sessions": set(), "tokens_output": 0,
+            "active_s": 0.0, "files": {}, "models": {}, "errors": 0,
+        })
+        e["turns"] += 1
+        e["sessions"].add(t["session_id"])
+        e["tokens_output"] += t["tokens_output"] + t["tokens_reasoning"]
+        e["active_s"] += t["duration_s"]
+        if t["error_name"]:
+            e["errors"] += 1
+        if t.get("model"):
+            e["models"][t["model"]] = e["models"].get(t["model"], 0) + 1
+        for call in t["tools"]:
+            if call.get("file"):
+                f = call["file"]
+                e["files"][f] = e["files"].get(f, 0) + 1
+
+    out = []
+    for e in by_proj.values():
+        files = sorted(e["files"].items(), key=lambda kv: kv[1], reverse=True)
+        out.append({
+            "project_id": e["project_id"],
+            "worktree": e["worktree"],
+            "name": e["name"],
+            "vcs": e["vcs"],
+            "sessions": len(e["sessions"]),
+            "turns": e["turns"],
+            "tokens_output": e["tokens_output"],
+            "active_s": round(e["active_s"], 1),
+            "error_rate": round(e["errors"] / e["turns"] * 100, 1) if e["turns"] else 0.0,
+            "files_touched": len(files),
+            "top_files": [{"path": sanitize_path(f), "name": Path(f).name, "edits": n} for f, n in files[:8]],
+            "top_models": sorted(e["models"].items(), key=lambda kv: kv[1], reverse=True)[:3],
+        })
+    out.sort(key=lambda x: x["turns"], reverse=True)
+    return out
+
+
+def get_file_churn(turns, limit=12):
+    counts = {}
+    for t in turns:
+        for call in t["tools"]:
+            f = call.get("file")
+            if f:
+                counts[f] = counts.get(f, 0) + 1
+    rows = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return [{"path": sanitize_path(f), "name": Path(f).name, "edits": n} for f, n in rows]
+
+
 def get_session_detail(session_id):
     # OpenClaw transcripts live on disk as JSONL, not in the OpenCode database.
     openclaw = get_openclaw_session_detail(session_id)
@@ -1895,6 +2333,14 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
             self.send_json(get_session_detail(session_id))
         elif path == "/api/timeseries":
             self.send_json(get_timeseries())
+        elif path == "/api/turns":
+            self.send_json(get_turns(query))
+        elif path == "/api/tools":
+            self.send_json(get_tool_stats(get_turns(query)))
+        elif path == "/api/models":
+            self.send_json(get_model_matrix(get_turns(query)))
+        elif path == "/api/projects":
+            self.send_json(get_project_stats(get_turns(query)))
         elif path == "/api/live":
             self.send_json(check_live_status())
         elif path == "/" or path == "/index.html":
