@@ -1278,6 +1278,53 @@ def get_continue_sessions():
     return res
 
 
+# The Sessions Explorer sends named speed tiers ("turbo"); saved dashboards may
+# still carry the older bucket strings ("60+"). Both resolve here, so neither
+# side can silently emit a value the other ignores.
+SPEED_TIERS = {
+    "turbo":    (45.0, None),
+    "fast":     (25.0, 45.0),
+    "standard": (15.0, 25.0),
+    "deep":     (0.0,  15.0),
+    # Legacy bucket labels, kept so built-in dashboards keep working.
+    "60+":      (60.0, None),
+    "45-60":    (45.0, 60.0),
+    "30-45":    (30.0, 45.0),
+    "15-30":    (15.0, 30.0),
+    "<15":      (0.0,  15.0),
+}
+
+SESSION_SORTS = {
+    "latest":        (lambda x: x.get("time_created", 0), True),
+    "oldest":        (lambda x: x.get("time_created", 0), False),
+    "duration":      (lambda x: x.get("duration_s", 0), True),
+    "tokens":        (lambda x: x.get("tokens_output", 0), True),
+    "speed":         (lambda x: x.get("tps", 0), True),
+    # Legacy names.
+    "date_desc":     (lambda x: x.get("time_created", 0), True),
+    "date_asc":      (lambda x: x.get("time_created", 0), False),
+    "tps_desc":      (lambda x: x.get("tps", 0), True),
+    "tokens_desc":   (lambda x: x.get("tokens_output", 0), True),
+    "duration_desc": (lambda x: x.get("duration_s", 0), True),
+}
+
+
+def _matches_speed_tier(tps, tier):
+    bounds = SPEED_TIERS.get(tier)
+    if not bounds:
+        return True  # Unknown tier filters nothing rather than everything.
+    low, high = bounds
+    if not tps:
+        # A session with no measured speed belongs to no tier.
+        return False
+    return tps >= low and (high is None or tps < high)
+
+
+def _sort_sessions(rows, sort_by):
+    key, reverse = SESSION_SORTS.get(sort_by, SESSION_SORTS["latest"])
+    rows.sort(key=key, reverse=reverse)
+
+
 def get_sessions(query_params):
     search = query_params.get("q", [""])[0].lower()
     harness_filter = query_params.get("harness", [""])[0].lower()
@@ -1289,7 +1336,7 @@ def get_sessions(query_params):
     date_from = query_params.get("from", [""])[0]
     date_to = query_params.get("to", [""])[0]
     window = query_params.get("window", [""])[0]  # e.g. 10m, 1h, 6h, 1d, 3d, 7d, 30d
-    sort_by = query_params.get("sort", ["date_desc"])[0]
+    sort_by = query_params.get("sort", ["latest"])[0]
 
     # Compute start_ms / end_ms from window presets or explicit date range
     now_ms = int(time.time() * 1000)
@@ -1497,19 +1544,10 @@ def get_sessions(query_params):
             if end_ms and t_created_ms > end_ms:
                 continue
 
-        # Speed Tier Filter
+        # Speed tier filter.
         session_tps = s.get("tps", 0.0)
-        if speed_tier:
-            if speed_tier == "<15" and (session_tps >= 15 or session_tps == 0):
-                continue
-            elif speed_tier == "15-30" and not (15 <= session_tps < 30):
-                continue
-            elif speed_tier == "30-45" and not (30 <= session_tps < 45):
-                continue
-            elif speed_tier == "45-60" and not (45 <= session_tps < 60):
-                continue
-            elif speed_tier == "60+" and session_tps < 60:
-                continue
+        if speed_tier and not _matches_speed_tier(session_tps, speed_tier):
+            continue
 
         # Filter by status / finish reason
         if status_filter == "tool_calls" and not s.get("has_tool_calls"):
@@ -1519,18 +1557,7 @@ def get_sessions(query_params):
 
         results.append(s)
 
-    # Sorting
-    if sort_by == "date_desc":
-        results.sort(key=lambda x: x.get("time_created", 0), reverse=True)
-    elif sort_by == "date_asc":
-        results.sort(key=lambda x: x.get("time_created", 0))
-    elif sort_by == "tps_desc":
-        results.sort(key=lambda x: x.get("tps", 0), reverse=True)
-    elif sort_by == "tokens_desc":
-        results.sort(key=lambda x: x.get("tokens_output", 0), reverse=True)
-    elif sort_by == "duration_desc":
-        results.sort(key=lambda x: x.get("duration_s", 0), reverse=True)
-
+    _sort_sessions(results, sort_by)
     return results
 
 

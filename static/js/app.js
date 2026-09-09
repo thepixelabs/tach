@@ -145,7 +145,7 @@ const PANEL_REGISTRY = {
   },
   'speculative-burst': {
     id: 'speculative-burst',
-    title: 'Speculative Burst (100k+ tok/s)',
+    title: 'Speculative Burst Analyzer',
     category: 'perf',
     icon: '🚀',
     description: 'Multi-Token Prediction (MTP) draft acceptance spikes vs autoregressive decode baseline.',
@@ -662,6 +662,40 @@ function cleanupResizeObservers() {
 }
 
 // ============================================================
+// PANEL STATE COMPONENTS
+// A panel must never render an invented number as if it were measured.
+// When a source is unreachable or has produced nothing yet, it says so.
+// ============================================================
+
+// A numeric slot with no measurement behind it.
+function dash(label) {
+  return `<span class="nodata" aria-label="${escapeHtml(label || 'not measured')}">&mdash;</span>`;
+}
+
+function stateBlock(kind, opts = {}) {
+  const tone = kind === 'error' ? 'bad' : 'neutral';
+  const action = opts.action
+    ? `<button class="btn btn--ghost btn--sm" type="button" onclick="${opts.action.onclick}">${escapeHtml(opts.action.label)}</button>`
+    : '';
+  return `
+    <div class="panel-state panel-state--${kind}" data-tone="${tone}">
+      <p class="panel-state__title">${escapeHtml(opts.title || 'No data')}</p>
+      <p class="panel-state__body">${escapeHtml(opts.body || '')}</p>
+      ${action}
+    </div>
+  `;
+}
+
+// Live engine panels share one offline treatment so "server is down" never
+// looks like "the metric is zero".
+function engineOffline(engine, what) {
+  return stateBlock('empty', {
+    title: `${engine} is offline`,
+    body: `${what} is measured live and is only available while ${engine} is running. Nothing is recorded for it while the server is down.`,
+  });
+}
+
+// ============================================================
 // THEME COLOUR ACCESS
 // Canvas charts cannot use CSS variables directly, so they read the
 // resolved token off the document root at draw time. That keeps every
@@ -686,11 +720,6 @@ function renderDashboard() {
   if (!grid) return;
 
   cleanupResizeObservers();
-
-  const badge = document.getElementById('activeWidgetsBadge');
-  if (badge) {
-    badge.textContent = state.layout.length + ' Panels';
-  }
 
   if (state.layout.length === 0) {
     grid.innerHTML = `
@@ -821,36 +850,51 @@ function renderKpiBanner(container, appState) {
 // 2. Speculative Burst & Multi-Token Prediction (MTP) Analyzer
 function renderSpeculativeBurstPanel(container, appState) {
   const mlx = appState.live?.mlx || {};
-  const det = mlx.details || {};
   const reqs = mlx.requests || [];
-  const maxPrefill = reqs.length ? Math.max(...reqs.map(r => r.prefill_tok_s || 0)) : 49473.8;
+
+  if (!mlx.online) {
+    container.innerHTML = engineOffline('MLX', 'Speculative burst rate');
+    return;
+  }
+  if (!reqs.length) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No requests captured yet',
+      body: 'Burst rates are read from completed MLX requests. Send a request through MLX (:8080) and it will appear here.',
+    });
+    return;
+  }
+
+  // Every figure below comes from the request ring buffer. Nothing is invented.
+  const decodeRates = reqs.map(r => r.decode_tok_s || 0).filter(Boolean);
+  const prefillRates = reqs.map(r => r.prefill_tok_s || 0).filter(Boolean);
+  const peakDecode = decodeRates.length ? Math.max(...decodeRates) : 0;
+  const peakPrefill = prefillRates.length ? Math.max(...prefillRates) : 0;
+  const medDecode = decodeRates.length
+    ? decodeRates.slice().sort((a, b) => a - b)[Math.floor(decodeRates.length / 2)]
+    : 0;
+  const scale = Math.max(peakPrefill, peakDecode, 1);
+
+  const row = (label, value, tone) => `
+    <div class="bar-row-item">
+      <span class="bar-row-label mono">${label}</span>
+      <div class="bar-row-track"><div class="bar-row-fill" style="width:${Math.min((value / scale) * 100, 100)}%;background:var(--tone-${tone});"></div></div>
+      <span class="bar-row-val mono" style="color:var(--tone-${tone});">${value ? formatNum(Math.round(value)) : dash()} tok/s</span>
+    </div>
+  `;
 
   container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.65rem;">
-        <span style="font-size:0.75rem;color:var(--text-sub);">Instantaneous Burst Rate:</span>
-        <span class="mono" style="color:var(--neon-pink);font-weight:700;">118,230.7 tok/s</span>
+    <div class="panel-pad">
+      <div class="stat-inline">
+        <span class="stat-inline__label">Peak prefill burst</span>
+        <span class="stat-inline__value mono">${peakPrefill ? formatNum(Math.round(peakPrefill)) + ' tok/s' : dash()}</span>
       </div>
-      <div style="background:rgba(var(--accent-pink-rgb),0.08);border:1px solid rgba(var(--accent-pink-rgb),0.28);border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;font-size:0.75rem;line-height:1.4;">
-        <strong style="color:var(--neon-pink);">Why 100k+ tok/s spikes appear:</strong><br>
-        1. <strong>MTP Speculative Verification:</strong> The Qwen3.8-MTP draft model proposes candidate tokens verified simultaneously in a single forward pass (< 0.1ms).<br>
-        2. <strong>APC Cache Re-Use:</strong> Prefix chunks in Apple Silicon unified memory bypass matrix attention, registering memory-bandwidth transfer speeds.
-      </div>
-      <div class="bar-row-item">
-        <span class="bar-row-label mono">Normal Decode</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:15%;background:var(--neon-acid);"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-acid);">${det.decode_tok_s || 23} tok/s</span>
-      </div>
-      <div class="bar-row-item">
-        <span class="bar-row-label mono">Peak Prefill</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:65%;background:var(--neon-cyan);"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-cyan);">${Math.round(maxPrefill)} tok/s</span>
-      </div>
-      <div class="bar-row-item">
-        <span class="bar-row-label mono">MTP Burst</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:100%;background:linear-gradient(90deg, var(--neon-violet), var(--neon-pink));"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-pink);">118k+ tok/s</span>
-      </div>
+      <p class="panel-note">
+        Prefill evaluates the prompt in parallel, so its token rate is orders of magnitude above sequential decode.
+        Both figures are measured over the last ${reqs.length} MLX request${reqs.length === 1 ? '' : 's'}.
+      </p>
+      ${row('Median decode', medDecode, 'good')}
+      ${row('Peak decode', peakDecode, 'primary')}
+      ${row('Peak prefill', peakPrefill, 'warn')}
     </div>
   `;
 }
@@ -858,29 +902,41 @@ function renderSpeculativeBurstPanel(container, appState) {
 // 3. Prefill vs Decode Velocity Benchmark
 function renderPrefillVsDecodePanel(container, appState) {
   const mlx = appState.live?.mlx || {};
-  const reqs = mlx.requests || [];
   const det = mlx.details || {};
 
+  if (!mlx.online) {
+    container.innerHTML = engineOffline('MLX', 'Prefill and decode throughput');
+    return;
+  }
+
+  const prefill = det.prefill_tok_s || 0;
+  const decode = det.decode_tok_s || 0;
+  if (!prefill && !decode) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No throughput measured yet',
+      body: 'MLX is running but has not completed a request since it started.',
+    });
+    return;
+  }
+
+  const ratio = (prefill && decode) ? Math.round(prefill / decode) : null;
+
   container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">
-        Prompt matrix parallel evaluation vs sequential autoregressive generation:
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;">
+    <div class="panel-pad">
+      <p class="panel-note">Prompt matrix parallel evaluation vs sequential autoregressive generation:</p>
+      <div class="duo-grid">
         <div class="pulse-box">
-          <div class="pulse-box-title">Prefill Throughput</div>
-          <div class="pulse-box-val mono" style="color:var(--neon-cyan);">${formatNum(det.prefill_tok_s || 27349)} <span style="font-size:0.75rem;">tok/s</span></div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">Parallel GPU tensor ingestion</div>
+          <div class="pulse-box-title">Prefill throughput</div>
+          <div class="pulse-box-val mono">${prefill ? formatNum(prefill) + ' <span class="pulse-unit">tok/s</span>' : dash()}</div>
+          <div class="pulse-box-sub">Parallel GPU tensor ingestion</div>
         </div>
         <div class="pulse-box">
-          <div class="pulse-box-title">Decode Throughput</div>
-          <div class="pulse-box-val mono" style="color:var(--neon-acid);">${det.decode_tok_s || 23.0} <span style="font-size:0.75rem;">tok/s</span></div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">Sequential autoregressive output</div>
+          <div class="pulse-box-title">Decode throughput</div>
+          <div class="pulse-box-val mono">${decode ? decode + ' <span class="pulse-unit">tok/s</span>' : dash()}</div>
+          <div class="pulse-box-sub">Sequential autoregressive output</div>
         </div>
       </div>
-      <div style="font-size:0.72rem;color:var(--text-sub);">
-        Prefill is <strong>${Math.round((det.prefill_tok_s || 27000) / (det.decode_tok_s || 23))}× faster</strong> than decode due to full matrix parallelization.
-      </div>
+      ${ratio ? `<p class="panel-note">Prefill is <strong>${ratio}\u00d7 faster</strong> than decode due to full matrix parallelization.</p>` : ''}
     </div>
   `;
 }
@@ -888,28 +944,37 @@ function renderPrefillVsDecodePanel(container, appState) {
 // 4. Time to First Token (TTFT) Latency Tracker
 function renderTtftLatencyPanel(container, appState) {
   const mlx = appState.live?.mlx || {};
-  const reqs = mlx.requests || [];
   const det = mlx.details || {};
+  const reqs = mlx.requests || [];
 
-  let reqRows = '';
-  reqs.slice(0, 5).forEach((r, idx) => {
-    const barWidth = Math.min((r.ttft_s / 6.0) * 100, 100);
-    reqRows += `
-      <div class="bar-row-item">
-        <span class="bar-row-label mono">Req #${reqs.length - idx}</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:${barWidth}%;background:var(--neon-amber);"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-amber);">${r.ttft_s}s</span>
-      </div>
-    `;
-  });
+  if (!mlx.online) {
+    container.innerHTML = engineOffline('MLX', 'Time to first token');
+    return;
+  }
+  if (!reqs.length && !det.ttft_s) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No TTFT records yet',
+      body: 'Time to first token is captured per request. It appears once MLX completes one.',
+    });
+    return;
+  }
+
+  const worst = reqs.length ? Math.max(...reqs.map(r => r.ttft_s || 0), 0.1) : (det.ttft_s || 0.1);
+  const rows = reqs.slice(0, 6).map((r, idx) => `
+    <div class="bar-row-item">
+      <span class="bar-row-label mono">Req #${reqs.length - idx}</span>
+      <div class="bar-row-track"><div class="bar-row-fill" style="width:${Math.min(((r.ttft_s || 0) / worst) * 100, 100)}%;background:var(--tone-warn);"></div></div>
+      <span class="bar-row-val mono">${r.ttft_s ? r.ttft_s + 's' : dash()}</span>
+    </div>
+  `).join('');
 
   container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-        <span style="font-size:0.75rem;color:var(--text-sub);">Latest Time to First Token:</span>
-        <span class="mono" style="color:var(--neon-amber);font-weight:700;font-size:1.1rem;">${det.ttft_s || 3.6}s</span>
+    <div class="panel-pad">
+      <div class="stat-inline">
+        <span class="stat-inline__label">Latest time to first token</span>
+        <span class="stat-inline__value mono">${det.ttft_s ? det.ttft_s + 's' : dash()}</span>
       </div>
-      ${reqRows || '<div class="empty-state" style="padding:1rem;">No recent request TTFT records.</div>'}
+      ${rows}
     </div>
   `;
 }
@@ -933,12 +998,12 @@ function renderTelemetryTablePanel(container, appState) {
     const isTool = r.tool_calls ? '<span class="badge badge-provider mono" style="color:var(--neon-amber);border-color:var(--neon-amber);">tool_calls</span>' : '<span class="badge badge-folder mono">text</span>';
     tableRows += `
       <tr style="border-bottom:1px solid var(--line-1);font-size:0.78rem;">
-        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono, monospace;color:var(--text-muted);">#${reqs.length - i}</td>
+        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono, monospace;color:var(--text-sub);">#${reqs.length - i}</td>
         <td style="padding:0.6rem 0.75rem;font-weight:600;">${escapeHtml(r.model)}</td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-cyan);">${formatNum(r.prompt_tokens)}</td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-violet);">${formatNum(r.completion_tokens)}</td>
-        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-cyan);">${formatNum(r.prefill_tok_s)} <span style="font-size:0.68rem;color:var(--text-muted);">tok/s</span></td>
-        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-acid);font-weight:700;">${r.decode_tok_s} <span style="font-size:0.68rem;color:var(--text-muted);">tok/s</span></td>
+        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-cyan);">${formatNum(r.prefill_tok_s)} <span style="font-size:0.68rem;color:var(--text-sub);">tok/s</span></td>
+        <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-acid);font-weight:700;">${r.decode_tok_s} <span style="font-size:0.68rem;color:var(--text-sub);">tok/s</span></td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;color:var(--neon-amber);">${r.ttft_s}s</td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;">${r.sliding_first_32 || '--'} → <strong style="color:var(--neon-pink);">${r.sliding_last_32 || '--'}</strong></td>
         <td style="padding:0.6rem 0.75rem;font-family:JetBrains Mono;">${r.peak_memory_gb} GB</td>
@@ -951,7 +1016,7 @@ function renderTelemetryTablePanel(container, appState) {
     <div class="telemetry-table-wrap" style="flex:1;min-height:0;overflow:auto;width:100%;border-radius:6px;">
       <table style="width:100%;border-collapse:collapse;text-align:left;">
         <thead style="position:sticky;top:0;background:var(--bg-panel-solid);z-index:2;box-shadow:0 1px 0 var(--border-subtle);">
-          <tr style="border-bottom:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">
+          <tr style="border-bottom:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.06em;">
             <th style="padding:0.5rem 0.75rem;">ID</th>
             <th style="padding:0.5rem 0.75rem;">Model</th>
             <th style="padding:0.5rem 0.75rem;">Input Context</th>
@@ -976,66 +1041,105 @@ function renderTelemetryTablePanel(container, appState) {
 function renderDecodeAccelPanel(container, appState) {
   const mlx = appState.live?.mlx || {};
   const det = mlx.details || {};
-  const first32 = det.sliding_first_32 || 15.1;
-  const last32 = det.sliding_last_32 || 33.3;
-  const gain = Math.round(((last32 - first32) / Math.max(first32, 1)) * 100);
+
+  if (!mlx.online) {
+    container.innerHTML = engineOffline('MLX', 'Decode warmup curve');
+    return;
+  }
+
+  const first32 = det.sliding_first_32 || 0;
+  const last32 = det.sliding_last_32 || 0;
+  if (!first32 && !last32) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No warmup samples yet',
+      body: 'The acceleration curve compares the first and last 32 decoded tokens of a request. It needs at least one completed generation.',
+    });
+    return;
+  }
+
+  const scale = Math.max(first32, last32, 1);
+  const gain = first32 ? Math.round(((last32 - first32) / first32) * 100) : null;
 
   container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">
-        Speculative drafting warmup during output token generation:
+    <div class="panel-pad">
+      <p class="panel-note">Speculative drafting warmup during output token generation:</p>
+      <div class="bar-row-item">
+        <span class="bar-row-label mono">First 32 tokens</span>
+        <div class="bar-row-track"><div class="bar-row-fill" style="width:${(first32 / scale) * 100}%;background:var(--tone-warn);"></div></div>
+        <span class="bar-row-val mono">${first32 ? first32 + ' tok/s' : dash()}</span>
       </div>
       <div class="bar-row-item">
-        <span class="bar-row-label mono">First 32 Tokens</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:${(first32 / 40) * 100}%;background:var(--neon-coral);"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-coral);">${first32} tok/s</span>
+        <span class="bar-row-label mono">Last 32 tokens</span>
+        <div class="bar-row-track"><div class="bar-row-fill" style="width:${(last32 / scale) * 100}%;background:var(--tone-good);"></div></div>
+        <span class="bar-row-val mono">${last32 ? last32 + ' tok/s' : dash()}</span>
       </div>
-      <div class="bar-row-item">
-        <span class="bar-row-label mono">Last 32 Tokens</span>
-        <div class="bar-row-track"><div class="bar-row-fill" style="width:${(last32 / 40) * 100}%;background:var(--neon-acid);"></div></div>
-        <span class="bar-row-val mono" style="color:var(--neon-acid);">${last32} tok/s</span>
-      </div>
-      <div style="margin-top:0.75rem;padding:0.5rem;border-radius:6px;background:rgba(var(--accent-success-rgb),0.08);border:1px solid rgba(var(--accent-success-rgb),0.25);font-size:0.75rem;">
-        ⚡ <strong>+${gain}% Acceleration:</strong> Model achieves full speculative draft throughput as KV cache context stabilizes.
-      </div>
+      ${gain !== null ? `
+        <p class="panel-callout" data-tone="${gain >= 0 ? 'good' : 'warn'}">
+          <strong>${gain >= 0 ? '+' : ''}${gain}%</strong> change from first to last window as the KV cache context stabilizes.
+        </p>` : ''}
     </div>
   `;
 }
 
 // 7. Automatic Prefix Cache (APC) Efficiency
 function renderApcCachePanel(container, appState) {
-  const apc = appState.live?.mlx?.apc || { enabled: true, hit_rate: 100.0, matched_tokens: 1620258, exact_hits: 23 };
+  const mlx = appState.live?.mlx || {};
+  const apc = mlx.apc;
+
+  if (!mlx.online) {
+    container.innerHTML = engineOffline('MLX', 'Prefix cache efficiency');
+    return;
+  }
+  if (!apc) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'Prefix cache not reporting',
+      body: 'MLX is running but did not report automatic prefix cache statistics.',
+    });
+    return;
+  }
+  if (!apc.enabled) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'Prefix cache disabled',
+      body: 'MLX is running with the automatic prefix cache turned off, so no tokens are being reused between requests.',
+    });
+    return;
+  }
+
+  const lookups = (apc.lookups_hit || 0) + (apc.lookups_miss || 0);
 
   container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+    <div class="panel-pad">
+      <div class="duo-grid">
         <div class="pulse-box">
-          <div class="pulse-box-title">Cache Hit Rate</div>
-          <div class="pulse-box-val mono" style="color:var(--neon-acid);">${apc.hit_rate}%</div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">100% KV-Cache Reutilization</div>
+          <div class="pulse-box-title">Cache hit rate</div>
+          <div class="pulse-box-val mono">${apc.hit_rate != null ? apc.hit_rate + '%' : dash()}</div>
+          <div class="pulse-box-sub">${lookups ? formatNum(lookups) + ' lookups' : 'No lookups recorded'}</div>
         </div>
         <div class="pulse-box">
-          <div class="pulse-box-title">Tokens Reused</div>
-          <div class="pulse-box-val mono" style="color:var(--neon-cyan);">${formatNum(apc.matched_tokens)}</div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">Saved from re-computation</div>
+          <div class="pulse-box-title">Tokens reused</div>
+          <div class="pulse-box-val mono">${apc.matched_tokens != null ? formatNum(apc.matched_tokens) : dash()}</div>
+          <div class="pulse-box-sub">Saved from re-computation</div>
         </div>
       </div>
-      <div style="font-size:0.75rem;color:var(--text-sub);">
-        Exact Cache Hits: <strong style="color:#FFF;">${apc.exact_hits}</strong> turns served directly from Unified Memory cache blocks without GPU re-encoding.
-      </div>
+      <p class="panel-note">
+        Exact cache hits: <strong>${apc.exact_hits != null ? apc.exact_hits : dash()}</strong>
+        turns served directly from unified memory cache blocks without GPU re-encoding.
+      </p>
     </div>
   `;
 }
 
 // 8. TPS Speed Distribution Histogram
 function renderSpeedDistPanel(container, appState) {
-  const buckets = appState.stats?.tps_buckets || {
-    '< 15': 235,
-    '15 - 30': 135,
-    '30 - 45': 36,
-    '45 - 60': 43,
-    '60+': 12,
-  };
+  const buckets = appState.stats?.tps_buckets;
+  if (!buckets || !Object.values(buckets).some(v => v > 0)) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No speed samples in this window',
+      body: 'Decode speed is measured per assistant turn. Widen the time window or pick a different data source.',
+      action: { label: 'Widen to All time', onclick: "setTimeWindow('all')" },
+    });
+    return;
+  }
 
   const total = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
   const colors = {
@@ -1118,7 +1222,7 @@ function renderToolUsagePanel(container, appState) {
     const pct = Math.round((t.count / maxCount) * 100);
     rows += `
       <div class="bar-row-item">
-        <span class="bar-row-label mono" style="color:#FFF;">🔧 ${escapeHtml(t.name)}</span>
+        <span class="bar-row-label mono" style="color:var(--text-main);">🔧 ${escapeHtml(t.name)}</span>
         <div class="bar-row-track">
           <div class="bar-row-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--neon-amber), var(--neon-pink));"></div>
         </div>
@@ -1270,7 +1374,7 @@ function renderTpsTrendPanel(container, appState) {
     if (idx >= 0 && idx < data.length) {
       const d = data[idx];
       tooltip.innerHTML = `
-        <div style="font-weight:700;color:#FFF;margin-bottom:2px;">📅 ${d.date}</div>
+        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">📅 ${d.date}</div>
         <div style="color:var(--neon-acid);">Avg Speed: <strong>${(d.avg_tps || 0).toFixed(1)} tok/s</strong></div>
         <div style="color:var(--neon-pink);">Peak Burst: <strong>${(d.peak_tps || 0).toFixed(1)} tok/s</strong></div>
         <div style="color:var(--text-sub);font-size:0.7rem;margin-top:2px;">${d.sessions || 1} session(s)</div>
@@ -1385,7 +1489,7 @@ function renderTokenVolumePanel(container, appState) {
     if (idx >= 0 && idx < data.length) {
       const d = data[idx];
       tooltip.innerHTML = `
-        <div style="font-weight:700;color:#FFF;margin-bottom:2px;">📅 ${d.date}</div>
+        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">📅 ${d.date}</div>
         <div style="color:var(--neon-violet);">Output Gen: <strong>${formatNum(d.tokens_output)}</strong></div>
         <div style="color:var(--neon-cyan);">Input Context: <strong>${formatNum(d.tokens_input)}</strong></div>
         <div style="color:var(--text-main);border-top:1px solid var(--line-2);padding-top:2px;margin-top:2px;">Total: <strong>${formatNum(d.tokens_total)}</strong></div>
@@ -1496,7 +1600,7 @@ function renderTopWorkspacesPanel(container, appState) {
     const pct = Math.round(((d.tokens_output || 0) / maxTokens) * 100);
     rows += `
       <div class="bar-row-item">
-        <span class="bar-row-label mono" style="color:#FFF;" title="${escapeHtml(d.path)}">📁 ${escapeHtml(d.folder)}</span>
+        <span class="bar-row-label mono" style="color:var(--text-main);" title="${escapeHtml(d.path)}">📁 ${escapeHtml(d.folder)}</span>
         <div class="bar-row-track">
           <div class="bar-row-fill" style="width:${pct}%;background:var(--neon-violet);"></div>
         </div>
@@ -1550,6 +1654,9 @@ function filterGalleryCards() {
 }
 
 function renderGallery() {
+  const totalEl = document.getElementById('galleryTotalCount');
+  if (totalEl) totalEl.textContent = Object.keys(PANEL_REGISTRY).length + ' Available';
+
   const container = document.getElementById('galleryCardsGrid');
   if (!container) return;
 
@@ -1581,7 +1688,7 @@ function renderGallery() {
 
   if (!filtered.length) {
     container.innerHTML = `
-      <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;color:var(--text-muted);">
+      <div style="grid-column:1/-1;text-align:center;padding:3rem 1rem;color:var(--text-sub);">
         No widgets found matching "${escapeHtml(q)}".
       </div>
     `;
@@ -1607,7 +1714,7 @@ function renderGallery() {
           <div class="gallery-card-footer">
             <div style="display:flex;align-items:center;gap:0.4rem;">
               <span class="category-tag ${catClass}">${catLabel}</span>
-              <span style="font-size:0.68rem;color:var(--text-muted);">${sizeLabel}</span>
+              <span style="font-size:0.68rem;color:var(--text-sub);">${sizeLabel}</span>
             </div>
             ${
               isAdded
@@ -1651,7 +1758,6 @@ async function fetchLiveStatus() {
   try {
     const res = await fetch('/api/live');
     state.live = await res.json();
-    renderLiveStatusBar();
 
     // Re-render live panels if present on board
     const livePanel = document.getElementById('panel-body-live-pulse');
@@ -1918,49 +2024,6 @@ function closeSessionDetail() {
   document.getElementById('drawerBackdrop').classList.remove('open');
 }
 
-function renderLiveStatusBar() {
-  const container = document.getElementById('liveStatusBar');
-  if (!container || !state.live) return;
-
-  const mlx = state.live.mlx || {};
-  const ollama = state.live.ollama || {};
-  const claw = state.live.openclaw || {};
-  const clawPort = claw.details?.port || 18789;
-
-  const pill = (online, title, label) => `
-    <div class="status-pill ${online ? 'online' : ''}" title="${escapeHtml(title)}">
-      <span class="status-indicator"></span>
-      <span>${label}</span>
-    </div>
-  `;
-
-  const mlxDet = mlx.details || {};
-  const ollamaDet = ollama.details || {};
-
-  let html = '';
-  html += pill(
-    mlx.online,
-    `MLX Server (:8080) ${mlx.online ? 'Online' : 'Offline'}`,
-    mlx.online
-      ? `MLX: <strong>${mlxDet.decode_tok_s || 0} tok/s</strong> (${escapeHtml(mlxDet.model ? mlxDet.model.split('/').pop() : 'Loaded')})`
-      : 'MLX Offline'
-  );
-  html += pill(
-    ollama.online,
-    `Ollama (:11434) ${ollama.online ? 'Online' : 'Offline'}`,
-    ollama.online
-      ? `Ollama: <strong>${escapeHtml(ollamaDet.active_model || 'Idle')}</strong>`
-      : 'Ollama Offline'
-  );
-  html += pill(
-    claw.online,
-    `OpenClaw gateway (:${clawPort}) ${claw.online ? 'Online' : 'Offline'}`,
-    claw.online ? 'OpenClaw GW: <strong>Running</strong>' : 'OpenClaw GW Offline'
-  );
-
-  container.innerHTML = html;
-}
-
 function renderFilterDropdowns() {
   if (!state.stats) return;
 
@@ -2105,7 +2168,7 @@ function renderSessionDrawer(detail) {
             <details class="tool-box">
               <summary class="tool-header">
                 <span>🔧 Tool Call: <strong>${escapeHtml(p.tool || 'tool')}</strong> [${escapeHtml(argKeys)}]</span>
-                <span style="font-size:0.7rem;color:var(--text-muted);">${p.status || 'done'}</span>
+                <span style="font-size:0.7rem;color:var(--text-sub);">${p.status || 'done'}</span>
               </summary>
               <div class="tool-body" style="margin-top:0.5rem;"><strong>Input:</strong>
 ${escapeHtml(JSON.stringify(p.input, null, 2))}
@@ -2143,7 +2206,7 @@ ${escapeHtml(outPreview)}</div>
             </div>
           </div>
           <div class="msg-body">
-            ${partsHtml || '<div class="msg-text" style="color:var(--text-muted);font-style:italic;">(Tool execution / state step)</div>'}
+            ${partsHtml || '<div class="msg-text" style="color:var(--text-sub);font-style:italic;">(Tool execution / state step)</div>'}
           </div>
         </div>
       `;
@@ -2181,6 +2244,7 @@ function renderSessionsExplorerWidget(container, appState, item) {
             </select>
             <select class="custom-select explorer-filter-sort" title="Sort Order">
               <option value="latest">Latest First</option>
+              <option value="oldest">Oldest First</option>
               <option value="duration">Longest First</option>
               <option value="tokens">Most Tokens</option>
               <option value="speed">Fastest TPS</option>
