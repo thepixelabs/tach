@@ -50,7 +50,7 @@ const DEFAULT_LAYOUT = [
   { id: 'decode-distribution', cols: 4, rows: 5 },
   { id: 'outcome-ledger', cols: 3, rows: 5 },
   { id: 'tps-trend', cols: 8, rows: 5 },
-  { id: 'cache-savings', cols: 4, rows: 5 },
+  { id: 'cache-savings', cols: 4, rows: 4 },
   { id: 'tool-reliability', cols: 7, rows: 6 },
   { id: 'long-poles', cols: 5, rows: 6 },
   { id: 'projects-leaderboard', cols: 5, rows: 5 },
@@ -87,7 +87,7 @@ const BUILTIN_DASHBOARDS = {
     layout: [
       { id: 'kpi-banner', cols: 12, rows: 3 },
       { id: 'token-volume', cols: 6, rows: 5 },
-      { id: 'model-share', cols: 6, rows: 5 },
+      { id: 'model-share', cols: 6, rows: 4 },
       { id: 'tool-usage', cols: 6, rows: 4 },
       { id: 'speed-distribution', cols: 6, rows: 4 },
     ],
@@ -120,7 +120,7 @@ function formatSecs(secs) {
   const mins = Math.floor(secs / 60);
   if (mins < 60) return mins + 'm ' + Math.round(secs % 60) + 's';
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm';
+  if (hrs < 48) return hrs + 'h ' + (mins % 60) + 'm';
   return Math.floor(hrs / 24) + 'd ' + (hrs % 24) + 'h';
 }
 
@@ -198,27 +198,32 @@ const PANEL_REGISTRY = {
   'turn-time-budget': {
     id: 'turn-time-budget', title: 'Turn Time Budget', category: 'perf', icon: '\u23F3',
     description: 'Where agent wall clock goes: tool execution vs reasoning vs prefill/decode.',
-    defaultCol: 5, render: renderTimeBudgetPanel,
+    defaultCol: 5,
+    defaultRows: 5, render: renderTimeBudgetPanel,
   },
   'decode-distribution': {
     id: 'decode-distribution', title: 'Decode Speed Percentiles', category: 'perf', icon: '\uD83D\uDCC8',
     description: 'Median, p90, p99 and peak per-turn decode rate - the honest answer to "how fast is it".',
-    defaultCol: 4, render: renderDecodeDistPanel,
+    defaultCol: 4,
+    defaultRows: 4, render: renderDecodeDistPanel,
   },
   'outcome-ledger': {
     id: 'outcome-ledger', title: 'Outcomes & Failures', category: 'core', icon: '\uD83D\uDEA6',
     description: 'How turns end, how often you kill the agent, and how often the provider errors.',
-    defaultCol: 3, render: renderOutcomePanel,
+    defaultCol: 3,
+    defaultRows: 5, render: renderOutcomePanel,
   },
   'context-economics': {
     id: 'context-economics', title: 'Context Economics', category: 'analytics', icon: '\uD83D\uDCE6',
     description: 'Peak context vs cumulative billed input, and how many times context was re-paid.',
-    defaultCol: 6, render: renderContextEconomicsPanel,
+    defaultCol: 6,
+    defaultRows: 4, render: renderContextEconomicsPanel,
   },
   'cache-savings': {
     id: 'cache-savings', title: 'Prefix Cache Savings', category: 'analytics', icon: '\uD83D\uDCBE',
     description: 'Share of context served from cache instead of being re-encoded.',
-    defaultCol: 4, render: renderCacheSavingsPanel,
+    defaultCol: 4,
+    defaultRows: 3, render: renderCacheSavingsPanel,
   },
   'tool-reliability': {
     id: 'tool-reliability', title: 'Tool Reliability & Latency', category: 'analytics', icon: '\uD83D\uDD27',
@@ -324,6 +329,7 @@ const PANEL_REGISTRY = {
     icon: '📊',
     description: 'Histogram breakdown of inference turns across speed tiers (<15 to 60+ tok/s).',
     defaultCol: 4,
+    defaultRows: 4,
     render: renderSpeedDistPanel,
   },
   'model-share': {
@@ -333,6 +339,7 @@ const PANEL_REGISTRY = {
     icon: '🍩',
     description: 'Breakdown of token generation across local models and backends (MLX, Ollama, etc.).',
     defaultCol: 4,
+    defaultRows: 4,
     render: renderModelSharePanel,
   },
   'tool-usage': {
@@ -342,6 +349,7 @@ const PANEL_REGISTRY = {
     icon: '🔧',
     description: 'Frequency ranking of tool calls (read, bash, edit, mcp) executed during sessions.',
     defaultCol: 4,
+    defaultRows: 4,
     render: renderToolUsagePanel,
   },
   'token-volume': {
@@ -369,6 +377,7 @@ const PANEL_REGISTRY = {
     icon: '⏳',
     description: 'Histogram of conversation session lengths from quick turns to deep coding sprints.',
     defaultCol: 6,
+    defaultRows: 4,
     render: renderDurationDistPanel,
   },
   'top-workspaces': {
@@ -378,6 +387,7 @@ const PANEL_REGISTRY = {
     icon: '📁',
     description: 'Token output volume and session counts ranked by project repository and folder.',
     defaultCol: 6,
+    defaultRows: 4,
     render: renderTopWorkspacesPanel,
   },
   'sessions-explorer': {
@@ -718,7 +728,14 @@ function addPanel(panelId) {
   if (!PANEL_REGISTRY[panelId]) return;
   if (state.layout.some(p => p.id === panelId)) return;
   const def = PANEL_REGISTRY[panelId];
-  state.layout.push({ id: panelId, col: def.defaultCol || 6 });
+  // Size from the panel's archetype rather than the legacy `col` field, which
+  // left rows unset and the span falling back to a generic default.
+  const lim = archetypeLimits(panelId);
+  state.layout.push({
+    id: panelId,
+    cols: def.defaultCol || lim.cols,
+    rows: def.defaultRows || lim.rows,
+  });
   commitLayoutEdit();
   renderDashboard();
   renderGallery();
@@ -992,6 +1009,18 @@ function cleanupResizeObservers() {
   state.resizeObservers.clear();
 }
 
+// Bar rows distribute across whatever height the panel is given, so a taller
+// card spreads them out instead of leaving dead space under the last row.
+function barList(rowsHtml, opts = {}) {
+  return `
+    <div class="panel-fill">
+      ${opts.caption ? `<p class="panel-note panel-note--head">${opts.caption}</p>` : ''}
+      <div class="bar-list">${rowsHtml}</div>
+      ${opts.footer ? `<p class="panel-note">${opts.footer}</p>` : ''}
+    </div>
+  `;
+}
+
 // ============================================================
 // PANEL STATE COMPONENTS
 // A panel must never render an invented number as if it were measured.
@@ -1212,7 +1241,7 @@ function renderSpeculativeBurstPanel(container, appState) {
   `;
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="stat-inline">
         <span class="stat-inline__label">Peak prefill burst</span>
         <span class="stat-inline__value mono">${peakPrefill ? formatNum(Math.round(peakPrefill)) + ' tok/s' : dash()}</span>
@@ -1251,7 +1280,7 @@ function renderPrefillVsDecodePanel(container, appState) {
   const ratio = (prefill && decode) ? Math.round(prefill / decode) : null;
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <p class="panel-note">Prompt matrix parallel evaluation vs sequential autoregressive generation:</p>
       <div class="duo-grid">
         <div class="pulse-box">
@@ -1298,7 +1327,7 @@ function renderTtftLatencyPanel(container, appState) {
   `).join('');
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="stat-inline">
         <span class="stat-inline__label">Latest time to first token</span>
         <span class="stat-inline__value mono">${det.ttft_s ? det.ttft_s + 's' : dash()}</span>
@@ -1390,7 +1419,7 @@ function renderDecodeAccelPanel(container, appState) {
   const gain = first32 ? Math.round(((last32 - first32) / first32) * 100) : null;
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <p class="panel-note">Speculative drafting warmup during output token generation:</p>
       <div class="bar-row-item">
         <span class="bar-row-label mono">First 32 tokens</span>
@@ -1437,7 +1466,7 @@ function renderApcCachePanel(container, appState) {
   const lookups = (apc.lookups_hit || 0) + (apc.lookups_miss || 0);
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="duo-grid">
         <div class="pulse-box">
           <div class="pulse-box-title">Cache hit rate</div>
@@ -1494,12 +1523,7 @@ function renderSpeedDistPanel(container, appState) {
     `;
   });
 
-  container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">Breakdown of all <strong>${total} turns</strong> across decode speed tiers:</div>
-      ${rows}
-    </div>
-  `;
+  container.innerHTML = barList(rows, { caption: `Breakdown of all <strong>${total} turns</strong> across decode speed tiers` });
 }
 
 // 9. Model Token Output Share
@@ -1529,12 +1553,7 @@ function renderModelSharePanel(container, appState) {
     `;
   });
 
-  container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">Model breakdown by total output tokens generated:</div>
-      ${rows}
-    </div>
-  `;
+  container.innerHTML = barList(rows, { caption: 'Model breakdown by total output tokens generated' });
 }
 
 // 10. Agent Tool Usage Breakdown
@@ -1560,12 +1579,7 @@ function renderToolUsagePanel(container, appState) {
     `;
   });
 
-  container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">Autonomous agent tools executed across sessions:</div>
-      ${rows}
-    </div>
-  `;
+  container.innerHTML = barList(rows, { caption: 'Autonomous agent tools executed across sessions' });
 }
 
 // 11. Decode Speed (tok/s) Timeline Line Chart
@@ -1933,7 +1947,7 @@ function renderTimeBudgetPanel(container, appState) {
   ];
 
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="stacked-bar" role="img" aria-label="Share of agent wall clock by phase">
         ${parts.map(p => `<div class="stacked-bar__seg" style="width:${p.pct}%;background:var(--tone-${p.tone});" title="${p.label}"></div>`).join('')}
       </div>
@@ -1963,7 +1977,7 @@ function renderDecodeDistPanel(container, appState) {
     return;
   }
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="pct-rail">
         ${[['p50', t.decode_tps_p50, 'primary'], ['p90', t.decode_tps_p90, 'good'], ['p99', t.decode_tps_p99, 'warn'], ['peak', t.decode_tps_peak, 'bad']]
           .map(([k, v, tone]) => `
@@ -1993,7 +2007,7 @@ function renderOutcomePanel(container, appState) {
   const toneFor = k => (k === 'stop' ? 'good' : k === 'incomplete' ? 'warn' : k === 'tool-calls' ? 'primary' : 'neutral');
   const errs = t.error_counts || {};
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="stacked-bar">
         ${Object.entries(counts).map(([k, v]) => `<div class="stacked-bar__seg" style="width:${v / total * 100}%;background:var(--tone-${toneFor(k)});" title="${k}: ${v}"></div>`).join('')}
       </div>
@@ -2022,7 +2036,7 @@ function renderContextEconomicsPanel(container, appState) {
   }
   const resend = t.context_peak ? (t.tokens_billed_input / t.context_peak) : 0;
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="duo-grid">
         <div class="pulse-box">
           <div class="pulse-box-title">Peak context</div>
@@ -2054,7 +2068,7 @@ function renderCacheSavingsPanel(container, appState) {
   }
   const pct = t.cache_hit_ratio || 0;
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       <div class="stat-inline">
         <span class="stat-inline__label">Context served from cache</span>
         <span class="stat-inline__value mono">${pct}%</span>
@@ -2117,15 +2131,15 @@ function renderLongPolesPanel(container, appState) {
   }
   const worst = rows[0].duration_s || 1;
   container.innerHTML = `
-    <div class="panel-pad">
-      ${rows.map(r => `
+    <div class="panel-fill">
+      <div class="bar-list">${rows.map(r => `
         <div class="bar-row-item">
           <span class="bar-row-label mono" title="${escapeHtml(r.folder)}">${escapeHtml(r.tool)}</span>
           <div class="bar-row-track">
             <div class="bar-row-fill" style="width:${(r.duration_s / worst) * 100}%;background:var(--tone-${r.status === 'error' ? 'bad' : 'warn'});"></div>
           </div>
           <span class="bar-row-val mono">${formatSecs(r.duration_s)}</span>
-        </div>`).join('')}
+        </div>`).join('')}</div>
       <p class="panel-note">Single calls, longest first. A call that ran for hours sets your headline throughput on its own.</p>
     </div>
   `;
@@ -2170,7 +2184,7 @@ function renderProjectsPanel(container, appState) {
   }
   const worst = Math.max(...rows.map(r => r.turns), 1);
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       ${rows.slice(0, 8).map(r => `
         <div class="bar-row-item">
           <span class="bar-row-label mono" title="${escapeHtml(r.worktree)}">${escapeHtml(r.name)}</span>
@@ -2191,7 +2205,7 @@ function renderFileChurnPanel(container, appState) {
   }
   const worst = rows[0].edits || 1;
   container.innerHTML = `
-    <div class="panel-pad">
+    <div class="panel-fill">
       ${rows.slice(0, 10).map(r => `
         <div class="bar-row-item">
           <span class="bar-row-label mono" title="${escapeHtml(r.path)}">${escapeHtml(r.name)}</span>
@@ -2222,12 +2236,7 @@ function renderDurationDistPanel(container, appState) {
     `;
   });
 
-  container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">Distribution of session conversation lengths:</div>
-      ${rows}
-    </div>
-  `;
+  container.innerHTML = barList(rows, { caption: 'Distribution of session conversation lengths' });
 }
 
 // 15. Top Workspaces Panel
@@ -2253,12 +2262,7 @@ function renderTopWorkspacesPanel(container, appState) {
     `;
   });
 
-  container.innerHTML = `
-    <div style="padding:0.25rem 0;">
-      <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.75rem;">Most active workspaces by session turns:</div>
-      ${rows}
-    </div>
-  `;
+  container.innerHTML = barList(rows, { caption: 'Most active workspaces by session turns' });
 }
 
 // ============================================================

@@ -102,7 +102,10 @@ function normalizeLayout(layout, registry, archetypeFor) {
       const ROW_PX = 56, GAP_PX = 20;
       rows = Math.round((Number(item.height) + GAP_PX) / (ROW_PX + GAP_PX));
     }
-    if (!Number.isFinite(rows)) rows = lim ? lim.rows : 4;
+    if (!Number.isFinite(rows)) {
+      const def = registry[item.id] || {};
+      rows = def.defaultRows || (lim ? lim.rows : 4);
+    }
 
     if (lim) {
       cols = Math.max(lim.minCols, Math.min(lim.maxCols, cols));

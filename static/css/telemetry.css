@@ -3222,7 +3222,39 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
    PANEL CONTENT PRIMITIVES
    Replaces the ad-hoc inline styles the panels each hand-rolled.
    ============================================================ */
-.panel-pad { padding-block: 0.25rem; }
+/* A panel body is a flex column so its content can claim the full card
+   height instead of clumping at the top and leaving dead space below. */
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  container-type: size;
+}
+
+.panel-fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  padding-block: 0.25rem;
+}
+
+/* Rows spread to fill the card, but the spacing is capped: past a comfortable
+   density the group centres instead of drifting the bars to the card edges,
+   which reads as lost rather than roomy. cqh measures the panel body, so the
+   cap follows the card and not the viewport. If the card is too short the list
+   scrolls rather than overflowing into the panel below. */
+.bar-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(0.3rem, 5cqh, 1.15rem);
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
+.panel-note--head { margin-block-start: 0; flex-shrink: 0; }
 
 .panel-note {
   font-size: 0.75rem;
@@ -3817,7 +3849,16 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 
 .stacked-bar__seg { block-size: 100%; transition: width var(--motion-slow) var(--ease-out); }
 
-.legend-list { list-style: none; display: flex; flex-direction: column; gap: 0.3rem; margin-block-start: 0.5rem; }
+.legend-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(0.3rem, 4cqh, 1rem);
+  margin-block-start: 0.5rem;
+  flex: 1;
+  min-block-size: 0;
+}
 
 .legend-list__item {
   display: flex;
@@ -3832,7 +3873,14 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 .legend-list__val { font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
 .legend-list__sub { color: var(--text-sub); min-inline-size: 4rem; text-align: end; font-variant-numeric: tabular-nums; }
 
-.pct-rail { display: flex; flex-direction: column; gap: 0.4rem; }
+.pct-rail {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(0.4rem, 5cqh, 1.15rem);
+  flex: 1;
+  min-block-size: 0;
+}
 .pct-rail__row { display: flex; align-items: center; gap: 0.6rem; }
 .pct-rail__key { inline-size: 2.5rem; font-size: 0.72rem; color: var(--text-sub); }
 .pct-rail__val { min-inline-size: 5rem; text-align: end; font-size: 0.75rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
@@ -3871,3 +3919,18 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 .bar-row-label { inline-size: clamp(6rem, 30%, 12rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-row-track { max-inline-size: 34rem; }
 .bar-row-val { min-inline-size: 5rem; text-align: end; font-variant-numeric: tabular-nums; }
+
+/* Bar rows keep a legible minimum but do not stretch unboundedly; the
+   surrounding space-evenly distribution absorbs the remainder. */
+.bar-list .bar-row-item {
+  flex: 0 0 auto;
+  margin-block-end: 0;
+}
+
+/* A closing note sits at the bottom of the card, under whatever filled the
+   space above it. */
+.panel-fill > .panel-note:last-child {
+  margin-block-start: auto;
+  padding-block-start: 0.5rem;
+  flex-shrink: 0;
+}
