@@ -2493,7 +2493,11 @@ async function fetchTimeseries() {
   }
 }
 
+let sessionsFetchInFlight = false;
+
 async function fetchSessions() {
+  if (sessionsFetchInFlight) return;
+  sessionsFetchInFlight = true;
   try {
     const params = new URLSearchParams();
     if (state.activeFilter.q) params.set('q', state.activeFilter.q);
@@ -2510,9 +2514,10 @@ async function fetchSessions() {
     const res = await fetch('/api/sessions?' + params.toString());
     state.sessions = await res.json();
     renderSessionsList();
-    if (state.activePage && state.activePage !== 'observatory') refreshActivePage();
   } catch (err) {
     console.error('Failed to load sessions', err);
+  } finally {
+    sessionsFetchInFlight = false;
   }
 }
 
@@ -3060,11 +3065,14 @@ registerPage({
     el.innerHTML = '<div class="sessions-full-view" id="sessionsFullViewContainer"></div>';
     const c = document.getElementById('sessionsFullViewContainer');
     if (c) renderSessionsExplorerWidget(c, state, { cols: 12, rows: 12 });
+    fetchSessions();
   },
+  // Render-only. Fetching happens on mount and whenever a filter changes;
+  // doing it here would re-enter through refreshActivePage.
   refresh() {
     const c = document.getElementById('sessionsFullViewContainer');
-    if (c) renderSessionsExplorerWidget(c, state, { cols: 12, rows: 12 });
-    fetchSessions();
+    if (c && !c.childElementCount) renderSessionsExplorerWidget(c, state, { cols: 12, rows: 12 });
+    renderSessionsList();
   },
 });
 
