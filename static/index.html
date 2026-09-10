@@ -36,63 +36,12 @@
 
         <details class="navgroup navgroup--collapsible" id="groupSources" open>
           <summary class="navgroup__title">Data sources</summary>
-          <div class="sidebar-source-list" id="sidebarSourceList">
-            <button class="sidebar-source-item active" data-harness="" onclick="selectDataSource('')" title="Unified view across all harnesses">
-              <span class="source-icon" aria-hidden="true">&#127760;</span>
-              <span class="source-name">All Sources</span>
-              <span class="source-pill mono" id="sideCountAll">--</span>
-            </button>
-            <button class="sidebar-source-item" data-harness="opencode" onclick="selectDataSource('opencode')" title="OpenCode autonomous agent sessions">
-              <span class="source-icon" aria-hidden="true">&#9889;</span>
-              <span class="source-name">OpenCode</span>
-              <span class="source-pill mono" id="sideCountOpenCode">--</span>
-            </button>
-            <button class="sidebar-source-item" data-harness="openclaw" onclick="selectDataSource('openclaw')" title="OpenClaw agent transcripts across every OpenClaw home on this machine">
-              <span class="source-icon" aria-hidden="true">&#128062;</span>
-              <span class="source-name">OpenClaw</span>
-              <span class="source-pill mono" id="sideCountOpenClaw">--</span>
-            </button>
-            <button class="sidebar-source-item" data-harness="aider" onclick="selectDataSource('aider')" title="Aider command-line chat history">
-              <span class="source-icon" aria-hidden="true">&#129302;</span>
-              <span class="source-name">Aider</span>
-              <span class="source-pill mono" id="sideCountAider">--</span>
-            </button>
-            <button class="sidebar-source-item" data-harness="continue" onclick="selectDataSource('continue')" title="Continue.dev IDE sessions">
-              <span class="source-icon" aria-hidden="true">&#128640;</span>
-              <span class="source-name">Continue</span>
-              <span class="source-pill mono" id="sideCountContinue">--</span>
-            </button>
-          </div>
+          <div class="sidebar-source-list" id="sidebarSourceList"></div>
         </details>
 
         <details class="navgroup navgroup--collapsible" id="groupServers" open>
           <summary class="navgroup__title">Local servers</summary>
-          <div class="sidebar-server-list" id="sidebarServerList">
-            <button class="sidebar-server-item" data-server="mlx" onclick="showServerPanel('mlx')" title="Apple Silicon MLX LM Server (:8080)">
-              <span class="source-icon" aria-hidden="true">&#128994;</span>
-              <span class="server-meta">
-                <span class="source-name">MLX LM</span>
-                <span class="server-port mono">:8080</span>
-              </span>
-              <span class="status-chip mono offline" id="sideStatusMlx">Offline</span>
-            </button>
-            <button class="sidebar-server-item" data-server="ollama" onclick="showServerPanel('ollama')" title="Local Ollama daemon (:11434)">
-              <span class="source-icon" aria-hidden="true">&#129433;</span>
-              <span class="server-meta">
-                <span class="source-name">Ollama</span>
-                <span class="server-port mono">:11434</span>
-              </span>
-              <span class="status-chip mono offline" id="sideStatusOllama">Offline</span>
-            </button>
-            <button class="sidebar-server-item" data-server="openclaw" onclick="showServerPanel('openclaw')" title="OpenClaw gateway daemon">
-              <span class="source-icon" aria-hidden="true">&#128062;</span>
-              <span class="server-meta">
-                <span class="source-name">OpenClaw GW</span>
-                <span class="server-port mono" id="sidePortOpenClawGw">:18789</span>
-              </span>
-              <span class="status-chip mono offline" id="sideStatusOpenClawGw">Offline</span>
-            </button>
-          </div>
+          <div class="sidebar-server-list" id="sidebarServerList"></div>
         </details>
       </div>
 
@@ -100,17 +49,7 @@
         <nav class="navgroup navgroup--pinned" aria-label="Settings">
           <ul class="navgroup__list" id="navListFoot"></ul>
         </nav>
-        <div class="backend-pills-row" id="sidebarBackendStatus">
-          <div class="backend-dot-status offline" id="dotMlx" title="MLX Server (:8080)">
-            <span class="dot red"></span><span class="mono">MLX:8080</span>
-          </div>
-          <div class="backend-dot-status offline" id="dotOllama" title="Ollama (:11434)">
-            <span class="dot red"></span><span class="mono">OLLAMA</span>
-          </div>
-          <div class="backend-dot-status offline" id="dotOpenClawGw" title="OpenClaw gateway">
-            <span class="dot red"></span><span class="mono">CLAW-GW</span>
-          </div>
-        </div>
+        <div class="backend-pills-row" id="sidebarBackendStatus"></div>
         <button class="mode-toggle" type="button" id="modeToggle" onclick="toggleMode()" aria-pressed="false">
           <span class="mode-toggle__icon" aria-hidden="true">&#9789;</span>
           <span id="modeToggleLabel">Dark mode</span>
@@ -263,6 +202,21 @@
         </div>
 
         <!-- System & Local Harness Information -->
+        <div class="settings-section">
+          <div class="settings-section-label mono settings-label-row">
+            <span>DETECTED APPS &amp; SERVERS</span>
+            <span class="settings-label-actions">
+              <span class="mono catalog-stamp" id="catalogStamp"></span>
+              <button class="btn btn--ghost btn--sm" type="button" id="btnRescan" onclick="rescanCatalog()">Rescan now</button>
+            </span>
+          </div>
+          <p class="settings-hint">
+            Only apps with data on this machine appear in the sidebar. This scan runs on every page load;
+            use Rescan after installing or first running a new tool.
+          </p>
+          <div id="catalogTable"></div>
+        </div>
+
         <div class="settings-section">
           <div class="settings-section-label mono">TELEMETRY SOURCES & PATHS</div>
           <div class="system-info-list" id="settingsSystemInfo">

@@ -3958,3 +3958,46 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   padding-block-start: 0.5rem;
   flex-shrink: 0;
 }
+
+/* ---------- Detection / catalog ---------- */
+.settings-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settings-label-actions { display: flex; align-items: center; gap: 0.6rem; }
+
+.catalog-stamp {
+  font-size: 0.66rem;
+  color: var(--text-sub);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.settings-hint {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  line-height: 1.5;
+  margin-block: 0.35rem 0.75rem;
+  max-inline-size: 68ch;
+}
+
+/* An app that was looked for and not found stays listed but recedes, so it is
+   clear what was checked rather than silently omitted. */
+.data-table tr.is-absent { opacity: 0.5; }
+
+.tag {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--tone, var(--line-3)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone, var(--line-3)) 35%, transparent);
+  color: var(--tone, var(--text-sub));
+}
+
+.sidebar-source-item[disabled] { cursor: not-allowed; opacity: 0.45; }

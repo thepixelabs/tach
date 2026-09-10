@@ -369,25 +369,47 @@ def count_opencode_sessions():
 def get_harness_inventory():
     """
     Per-source session counts for the sidebar, always computed across every
-    harness regardless of the active filter.
+    harness regardless of the active filter. Only sources with artifacts on
+    this machine are marked detected; the sidebar hides the rest.
     """
     opencode_n = count_opencode_sessions()
     openclaw_n = len(get_openclaw_sessions())
+    claudecode_n = len(get_claude_code_sessions())
     aider_files = scan_aider_history()
     continue_files = scan_continue_sessions()
 
-    return [
-        {"id": "all", "name": "All Harnesses", "detected": True,
-         "count": opencode_n + openclaw_n + len(aider_files) + len(continue_files)},
-        {"id": "opencode", "name": "OpenCode", "detected": True,
+    catalog = {c["id"]: c for c in get_catalog()["sources"]}
+
+    rows = [
+        {"id": "all", "name": "All Sources", "icon": "\U0001F310", "detected": True,
+         "count": opencode_n + openclaw_n + claudecode_n + len(aider_files) + len(continue_files)},
+        {"id": "opencode", "name": "OpenCode", "icon": "\u26A1",
+         "detected": catalog.get("opencode", {}).get("detected", False),
          "path": sanitize_path(str(CONFIG["opencode_db"])), "count": opencode_n},
-        {"id": "openclaw", "name": "OpenClaw", "detected": len(CONFIG["openclaw_homes"]) > 0,
+        {"id": "claudecode", "name": "Claude Code", "icon": "\u2733\uFE0F",
+         "detected": catalog.get("claudecode", {}).get("detected", False),
+         "path": catalog.get("claudecode", {}).get("path"), "count": claudecode_n},
+        {"id": "openclaw", "name": "OpenClaw", "icon": "\U0001F43E",
+         "detected": len(CONFIG["openclaw_homes"]) > 0,
          "path": sanitize_path(str(CONFIG["openclaw_homes"][0])) if CONFIG["openclaw_homes"] else None,
          "count": openclaw_n},
-        {"id": "aider", "name": "Aider", "detected": len(aider_files) > 0, "count": len(aider_files)},
-        {"id": "continue", "name": "Continue", "detected": len(continue_files) > 0,
-         "count": len(continue_files)},
+        {"id": "aider", "name": "Aider", "icon": "\U0001F916",
+         "detected": len(aider_files) > 0, "count": len(aider_files)},
+        {"id": "continue", "name": "Continue", "icon": "\U0001F680",
+         "detected": len(continue_files) > 0, "count": len(continue_files)},
     ]
+
+    # Anything else the catalog found on disk is surfaced as detected but not
+    # yet readable, rather than silently omitted.
+    for c in get_catalog()["sources"]:
+        if c["id"] in {r["id"] for r in rows} or not c["detected"] or c["readable"]:
+            continue
+        rows.append({
+            "id": c["id"], "name": c["name"], "icon": c["icon"],
+            "detected": True, "readable": False, "path": c["path"], "count": 0,
+        })
+
+    return rows
 
 
 WINDOW_MS = {
@@ -478,6 +500,8 @@ def get_all_stats(query_params=None):
         harness_sessions = []
         if harness_filter == "openclaw":
             harness_sessions = get_openclaw_sessions()
+        elif harness_filter == "claudecode":
+            harness_sessions = get_claude_code_sessions()
         elif harness_filter == "aider":
             harness_sessions = get_aider_sessions()
         elif harness_filter == "continue":
@@ -1579,6 +1603,9 @@ def get_sessions(query_params):
     if not harness_filter or harness_filter in ["openclaw", "all"]:
         all_raw_sessions.extend(get_openclaw_sessions())
 
+    if not harness_filter or harness_filter in ["claudecode", "all"]:
+        all_raw_sessions.extend(get_claude_code_sessions())
+
     # 3. Fetch Aider sessions if selected
     if not harness_filter or harness_filter in ["aider", "all"]:
         all_raw_sessions.extend(get_aider_sessions())
@@ -1999,6 +2026,419 @@ def get_file_churn(turns, limit=12):
     return [{"path": sanitize_path(f), "name": Path(f).name, "edits": n} for f, n in rows]
 
 
+# ============================================================
+# CLAUDE CODE
+# Sessions live as JSONL under ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl.
+# Usage carries cache creation/read and thinking tokens separately, so the
+# same billed-input vs context distinction applies here as elsewhere.
+# ============================================================
+
+def claude_code_root():
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
+    return root if root.is_dir() else None
+
+
+def scan_claude_code_files(limit=400):
+    root = claude_code_root()
+    if not root:
+        return []
+    files = []
+    try:
+        for proj in sorted(root.iterdir()):
+            if not proj.is_dir():
+                continue
+            for f in proj.glob("*.jsonl"):
+                files.append(f)
+    except Exception:
+        return []
+    # Newest first; a machine can accumulate thousands of these.
+    files.sort(key=lambda f: f.stat().st_mtime if f.exists() else 0, reverse=True)
+    return files[:limit]
+
+
+def parse_claude_code_session(path):
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return None
+
+    title = None
+    ai_title = None
+    cwd = None
+    model = None
+    version = None
+    branch = None
+    session_id = path.stem
+
+    tok_in = tok_out = tok_reasoning = tok_cache_read = tok_cache_write = 0
+    first_ts = last_ts = None
+    user_turns = assistant_turns = 0
+    has_tools = False
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+
+        etype = ev.get("type")
+        if etype == "ai-title" and ev.get("aiTitle"):
+            ai_title = ev["aiTitle"]
+            continue
+        if etype not in ("user", "assistant"):
+            continue
+
+        cwd = ev.get("cwd") or cwd
+        version = ev.get("version") or version
+        branch = ev.get("gitBranch") or branch
+        session_id = ev.get("sessionId") or session_id
+
+        ts = ev.get("timestamp")
+        if ts:
+            try:
+                ms = int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000)
+                first_ts = ms if first_ts is None else min(first_ts, ms)
+                last_ts = ms if last_ts is None else max(last_ts, ms)
+            except Exception:
+                pass
+
+        msg = ev.get("message") or {}
+        if etype == "user":
+            user_turns += 1
+            if title is None:
+                content = msg.get("content")
+                text = content if isinstance(content, str) else ""
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = part.get("text") or ""
+                            break
+                text = (text or "").strip()
+                # Skip tool-result echoes and command wrappers.
+                if text and not text.startswith("<") and not text.startswith("Caveat:"):
+                    title = text.splitlines()[0][:120]
+        else:
+            assistant_turns += 1
+            model = msg.get("model") or model
+            u = msg.get("usage") or {}
+            tok_in += int(u.get("input_tokens") or 0)
+            tok_out += int(u.get("output_tokens") or 0)
+            tok_cache_read += int(u.get("cache_read_input_tokens") or 0)
+            tok_cache_write += int(u.get("cache_creation_input_tokens") or 0)
+            details = u.get("output_tokens_details") or {}
+            tok_reasoning += int(details.get("thinking_tokens") or 0)
+            content = msg.get("content")
+            if isinstance(content, list) and any(
+                isinstance(c, dict) and c.get("type") == "tool_use" for c in content
+            ):
+                has_tools = True
+
+    if not assistant_turns and not user_turns:
+        return None
+
+    if not first_ts:
+        try:
+            first_ts = int(path.stat().st_mtime * 1000)
+        except Exception:
+            first_ts = 0
+        last_ts = first_ts
+
+    duration_s = max(0.0, ((last_ts or 0) - (first_ts or 0)) / 1000.0)
+    generated = tok_out + tok_reasoning
+    tps = round(generated / duration_s, 1) if (duration_s > 0.5 and generated) else 0.0
+    directory = cwd or str(path.parent)
+
+    return {
+        "id": session_id,
+        "harness": "claudecode",
+        "title": ai_title or title or "Claude Code session",
+        "directory": sanitize_path(directory),
+        "folder": Path(directory).name if directory else "claude",
+        "model": model or "unknown",
+        "provider": "anthropic",
+        "branch": branch,
+        "version": version,
+        "date_str": datetime.fromtimestamp(first_ts / 1000).strftime("%Y-%m-%d %H:%M") if first_ts else "Recent",
+        "time_created": int(first_ts or 0),
+        "duration_s": round(duration_s, 1),
+        "tokens_input": tok_in,
+        "tokens_output": tok_out,
+        "tokens_reasoning": tok_reasoning,
+        "tokens_cache_read": tok_cache_read,
+        "tokens_cache_write": tok_cache_write,
+        "tokens_total": tok_in + tok_out + tok_reasoning,
+        "cost": 0.0,
+        "message_count": user_turns + assistant_turns,
+        "tps": tps,
+        "peak_tps": tps,
+        "has_tool_calls": has_tools,
+        "source_path": sanitize_path(str(path)),
+    }
+
+
+_CC_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_claude_code_sessions():
+    # Parsing ~400 transcripts costs real time, so the result is cached for the
+    # length of a page interaction rather than re-read per request.
+    now = time.time()
+    if _CC_CACHE["rows"] is not None and (now - _CC_CACHE["at"]) < 60:
+        return _CC_CACHE["rows"]
+    rows = []
+    for f in scan_claude_code_files():
+        try:
+            rec = parse_claude_code_session(f)
+        except Exception:
+            rec = None
+        if rec:
+            rows.append(rec)
+    rows.sort(key=lambda r: r.get("time_created") or 0, reverse=True)
+    _CC_CACHE["at"] = now
+    _CC_CACHE["rows"] = rows
+    return rows
+
+
+# ============================================================
+# APP CATALOG & DETECTION
+# Only the tools actually present on this machine belong in the sidebar. The
+# catalog lists everything known; detection decides what is shown. "detected"
+# means artifacts exist on disk; "readable" means this app can also parse them,
+# which is a smaller set - the two are reported separately rather than
+# pretending a detected app is already understood.
+# ============================================================
+
+def _home():
+    return Path.home()
+
+
+def _first_existing(candidates):
+    for c in candidates:
+        try:
+            pc = Path(c).expanduser()
+        except Exception:
+            continue
+        if pc.exists():
+            return pc
+    return None
+
+
+def _count_glob(root, pattern, cap=5000):
+    try:
+        n = 0
+        for _ in Path(root).glob(pattern):
+            n += 1
+            if n >= cap:
+                break
+        return n
+    except Exception:
+        return 0
+
+
+def source_catalog():
+    """Every local-agent / chat app we know how to look for."""
+    h = _home()
+    app = h / "Library" / "Application Support"
+    xdg = Path(os.environ.get("XDG_DATA_HOME", h / ".local" / "share"))
+    return [
+        # --- Coding agents (readable) ---
+        {"id": "opencode",  "name": "OpenCode",    "icon": "\u26A1", "kind": "agent", "readable": True,
+         "paths": [CONFIG["opencode_db"]]},
+        {"id": "claudecode", "name": "Claude Code", "icon": "\u2733\uFE0F", "kind": "agent", "readable": True,
+         "paths": [h / ".claude" / "projects"], "glob": "*/*.jsonl"},
+        {"id": "openclaw",  "name": "OpenClaw",    "icon": "\U0001F43E", "kind": "agent", "readable": True,
+         "paths": [hh / "agents" for hh in CONFIG.get("openclaw_homes", [])] or [h / ".openclaw" / "agents"],
+         "glob": "*/sessions/*.jsonl"},
+        {"id": "aider",     "name": "Aider",       "icon": "\U0001F916", "kind": "agent", "readable": True,
+         "paths": [h / ".aider.chat.history.md", Path.cwd() / ".aider.chat.history.md"]},
+        {"id": "continue",  "name": "Continue",    "icon": "\U0001F680", "kind": "agent", "readable": True,
+         "paths": [h / ".continue" / "sessions"], "glob": "*.json"},
+
+        # --- Coding agents (detected, parser not implemented yet) ---
+        {"id": "codex",     "name": "Codex CLI",   "icon": "\U0001F9E0", "kind": "agent", "readable": False,
+         "paths": [h / ".codex" / "sessions", h / ".codex"]},
+        {"id": "gemini",    "name": "Gemini CLI",  "icon": "\U0001F48E", "kind": "agent", "readable": False,
+         "paths": [h / ".gemini" / "tmp", h / ".gemini"]},
+        {"id": "goose",     "name": "Goose",       "icon": "\U0001F9A2", "kind": "agent", "readable": False,
+         "paths": [xdg / "goose" / "sessions"], "glob": "*.jsonl"},
+        {"id": "crush",     "name": "Crush",       "icon": "\U0001F4A5", "kind": "agent", "readable": False,
+         "paths": [xdg / "crush", h / ".crush"]},
+        {"id": "cline",     "name": "Cline",       "icon": "\U0001F9BE", "kind": "agent", "readable": False,
+         "paths": [app / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "tasks",
+                   h / ".vscode" / "globalStorage" / "saoudrizwan.claude-dev"]},
+        {"id": "roo",       "name": "Roo Code",    "icon": "\U0001F998", "kind": "agent", "readable": False,
+         "paths": [app / "Code" / "User" / "globalStorage" / "rooveterinaryinc.roo-cline" / "tasks"]},
+        {"id": "cursor",    "name": "Cursor",      "icon": "\U0001F5B1\uFE0F", "kind": "agent", "readable": False,
+         "paths": [app / "Cursor" / "User" / "globalStorage"]},
+        {"id": "windsurf",  "name": "Windsurf",    "icon": "\U0001F30A", "kind": "agent", "readable": False,
+         "paths": [h / ".codeium" / "windsurf", app / "Windsurf"]},
+        {"id": "zed",       "name": "Zed",         "icon": "\u26A1", "kind": "agent", "readable": False,
+         "paths": [app / "Zed" / "conversations", app / "Zed" / "threads"]},
+        {"id": "copilot",   "name": "Copilot Chat", "icon": "\U0001F9E9", "kind": "agent", "readable": False,
+         "paths": [app / "Code" / "User" / "globalStorage" / "github.copilot-chat"]},
+
+        # --- Desktop chat apps ---
+        {"id": "lmstudio_chat", "name": "LM Studio chats", "icon": "\U0001F5A5\uFE0F", "kind": "chat", "readable": False,
+         "paths": [h / ".lmstudio" / "conversations", h / ".cache" / "lm-studio" / "conversations"]},
+        {"id": "openwebui", "name": "Open WebUI",  "icon": "\U0001F310", "kind": "chat", "readable": False,
+         "paths": [h / ".open-webui" / "webui.db", h / "open-webui" / "backend" / "data" / "webui.db"]},
+        {"id": "librechat", "name": "LibreChat",   "icon": "\U0001F4AC", "kind": "chat", "readable": False,
+         "paths": [h / "LibreChat", app / "LibreChat"]},
+        {"id": "jan",       "name": "Jan",         "icon": "\U0001F31F", "kind": "chat", "readable": False,
+         "paths": [h / "jan" / "threads", app / "jan" / "threads"]},
+        {"id": "anythingllm", "name": "AnythingLLM", "icon": "\U0001F4DA", "kind": "chat", "readable": False,
+         "paths": [app / "anythingllm-desktop"]},
+        {"id": "msty",      "name": "Msty",        "icon": "\U0001F9ED", "kind": "chat", "readable": False,
+         "paths": [app / "Msty"]},
+        {"id": "chatbox",   "name": "Chatbox",     "icon": "\U0001F4E6", "kind": "chat", "readable": False,
+         "paths": [app / "xyz.chatboxapp.app"]},
+        {"id": "gpt4all",   "name": "GPT4All",     "icon": "\U0001F5A8\uFE0F", "kind": "chat", "readable": False,
+         "paths": [app / "nomic.ai" / "GPT4All", h / ".config" / "nomic.ai" / "GPT4All"]},
+    ]
+
+
+def server_catalog():
+    """
+    Local inference servers. Several share port 8080, so each probe carries the
+    endpoint that identifies it rather than trusting the port alone.
+    """
+    return [
+        {"id": "mlx",       "name": "MLX LM",        "icon": "\U0001F7E2", "port": 8080,  "probe": "/metrics", "kind": "mlx", "installs": ["~/.cache/huggingface/hub", "/opt/homebrew/bin/mlx_lm.server"]},
+        {"id": "ollama",    "name": "Ollama",        "icon": "\U0001F999", "port": 11434, "probe": "/api/tags", "kind": "ollama", "installs": ["/Applications/Ollama.app", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "~/.ollama"]},
+        {"id": "llamacpp",  "name": "llama.cpp",     "icon": "\U0001F999", "port": 8077,  "probe": "/props", "kind": "llamacpp", "installs": ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]},
+        {"id": "lmstudio",  "name": "LM Studio",     "icon": "\U0001F5A5\uFE0F", "port": 1234,  "probe": "/v1/models", "installs": ["/Applications/LM Studio.app", "~/.lmstudio"]},
+        {"id": "vllm",      "name": "vLLM",          "icon": "\U0001F3AF", "port": 8000,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/vllm"]},
+        {"id": "jan_server", "name": "Jan server",   "icon": "\U0001F31F", "port": 1337,  "probe": "/v1/models", "installs": ["/Applications/Jan.app", "~/jan"]},
+        {"id": "koboldcpp", "name": "KoboldCpp",     "icon": "\U0001F4D8", "port": 5001,  "probe": "/api/v1/model", "kind": "kobold", "installs": ["~/koboldcpp", "/opt/homebrew/bin/koboldcpp"]},
+        {"id": "textgenwebui", "name": "Text-gen WebUI", "icon": "\U0001F5A5\uFE0F", "port": 5000, "probe": "/v1/models", "installs": ["~/text-generation-webui"]},
+        {"id": "localai",   "name": "LocalAI",       "icon": "\U0001F916", "port": 8081,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/local-ai"]},
+        {"id": "sglang",    "name": "SGLang",        "icon": "\u26A1", "port": 30000, "probe": "/v1/models", "installs": ["/opt/homebrew/bin/sglang"]},
+        {"id": "cortex",    "name": "Cortex",        "icon": "\U0001F9E0", "port": 39281, "probe": "/v1/models", "installs": ["/Applications/Cortex.app", "~/cortexcpp"]},
+        {"id": "tabbyapi",  "name": "TabbyAPI",      "icon": "\U0001F408", "port": 5555,  "probe": "/v1/models", "installs": ["~/tabbyAPI"]},
+        {"id": "openwebui_srv", "name": "Open WebUI", "icon": "\U0001F310", "port": 3000, "probe": "/health", "kind": "health", "installs": ["~/.open-webui"]},
+        {"id": "openclaw_gw", "name": "OpenClaw gateway", "icon": "\U0001F43E", "port": None, "probe": "/health", "kind": "health", "allow_tcp": True, "installs": ["/opt/homebrew/bin/openclaw", "~/.openclaw"]},
+    ]
+
+
+def detect_sources():
+    out = []
+    for entry in source_catalog():
+        found = _first_existing([p for p in entry.get("paths", []) if p])
+        count = None
+        if found and entry.get("glob"):
+            count = _count_glob(found, entry["glob"])
+        elif found and found.is_dir():
+            count = _count_glob(found, "*")
+        out.append({
+            "id": entry["id"],
+            "name": entry["name"],
+            "icon": entry["icon"],
+            "kind": entry["kind"],
+            "readable": entry["readable"],
+            "detected": found is not None,
+            "path": sanitize_path(str(found)) if found else None,
+            "artifacts": count,
+        })
+    return out
+
+
+def detect_servers():
+    port_overrides = {"openclaw_gw": resolve_openclaw_gateway()}
+    out = []
+    for entry in server_catalog():
+        port = port_overrides.get(entry["id"], entry["port"])
+        if not port:
+            continue
+        online, detail = _probe_server(
+            port, entry["probe"],
+            kind=entry.get("kind", "openai"),
+            allow_tcp=entry.get("allow_tcp", False),
+        )
+        install = _first_existing(entry.get("installs", []))
+        out.append({
+            "id": entry["id"],
+            "name": entry["name"],
+            "icon": entry["icon"],
+            "port": port,
+            "online": online,
+            "installed": install is not None,
+            "install_path": sanitize_path(str(install)) if install else None,
+            "detail": detail,
+        })
+    return out
+
+
+def _looks_like(kind, payload):
+    """
+    A port being open proves nothing about what is on it: :5000 is macOS
+    Control Center and :8000 is often a dev server. Each probe must recognise
+    its own response shape before the server is reported as running.
+    """
+    if not isinstance(payload, dict):
+        return False
+    if kind == "openai":
+        data = payload.get("data")
+        return payload.get("object") == "list" or isinstance(data, list)
+    if kind == "ollama":
+        return isinstance(payload.get("models"), list)
+    if kind == "mlx":
+        return any(k in payload for k in ("summary", "recent", "server", "latest"))
+    if kind == "llamacpp":
+        return any(k in payload for k in ("default_generation_settings", "model_path", "total_slots"))
+    if kind == "kobold":
+        return "result" in payload
+    if kind == "health":
+        return True
+    return False
+
+
+def _probe_server(port, probe_path, kind="openai", allow_tcp=False):
+    url = f"http://127.0.0.1:{port}{probe_path}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Telemetry"})
+        with urllib.request.urlopen(req, timeout=0.6) as resp:
+            body = resp.read(8192)
+            try:
+                payload = json.loads(body.decode())
+            except Exception:
+                return False, None
+            return (True, payload) if _looks_like(kind, payload) else (False, None)
+    except urllib.error.HTTPError:
+        # Answered but refused us. Only meaningful where the server is known to
+        # require a token, so it is opt-in per entry.
+        return (True, None) if allow_tcp else (False, None)
+    except Exception:
+        pass
+    if allow_tcp:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.35):
+                return True, None
+        except Exception:
+            pass
+    return False, None
+
+
+_CATALOG_CACHE = {"at": 0.0, "data": None}
+
+
+def get_catalog(force=False):
+    """Detection is cached briefly so a page render does not re-stat the disk."""
+    now = time.time()
+    if not force and _CATALOG_CACHE["data"] and (now - _CATALOG_CACHE["at"]) < 30:
+        return _CATALOG_CACHE["data"]
+    data = {
+        "sources": detect_sources(),
+        "servers": detect_servers(),
+        "scanned_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _CATALOG_CACHE["at"] = now
+    _CATALOG_CACHE["data"] = data
+    return data
+
+
 def get_session_detail(session_id):
     # OpenClaw transcripts live on disk as JSONL, not in the OpenCode database.
     openclaw = get_openclaw_session_detail(session_id)
@@ -2341,6 +2781,9 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
             self.send_json(get_model_matrix(get_turns(query)))
         elif path == "/api/projects":
             self.send_json(get_project_stats(get_turns(query)))
+        elif path == "/api/catalog":
+            force = query.get("refresh", ["0"])[0] in ("1", "true", "yes")
+            self.send_json(get_catalog(force=force))
         elif path == "/api/live":
             self.send_json(check_live_status())
         elif path == "/" or path == "/index.html":

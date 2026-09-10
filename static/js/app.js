@@ -2399,6 +2399,7 @@ async function fetchStats() {
     renderDashboard();
     renderFilterDropdowns();
     updateDataSourcePillCounts();
+    renderDataSources();
     renderSystemInfo();
   } catch (err) {
     console.error('Failed to load stats', err);
@@ -3021,6 +3022,142 @@ function bindExplorerWidgetEvents(container) {
 }
 
 // ============================================================
+// SOURCE & SERVER DETECTION
+// The sidebar lists only what is actually on this machine. Detection runs on
+// load and on demand from Settings, rather than shipping a fixed list that
+// advertises tools the user does not have.
+// ============================================================
+
+async function fetchCatalog(force = false) {
+  try {
+    const res = await fetch('/api/catalog' + (force ? '?refresh=1' : ''));
+    state.catalog = await res.json();
+    renderDataSources();
+    renderServerList();
+    renderCatalogTable();
+    return true;
+  } catch (err) {
+    console.error('Detection scan failed', err);
+    return false;
+  }
+}
+
+async function rescanCatalog() {
+  const btn = document.getElementById('btnRescan');
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning\u2026'; }
+  const ok = await fetchCatalog(true);
+  await fetchStats();
+  if (btn) { btn.disabled = false; btn.textContent = 'Rescan now'; }
+  showToast(ok ? 'Rescanned local apps' : 'Rescan failed');
+}
+
+function renderDataSources() {
+  const host = document.getElementById('sidebarSourceList');
+  if (!host || !state.stats) return;
+  const rows = (state.stats.harnesses || []).filter(h => h.id === 'all' || h.detected);
+
+  host.innerHTML = rows.map(h => {
+    const active = (state.activeFilter.harness || '') === (h.id === 'all' ? '' : h.id);
+    const unreadable = h.readable === false;
+    return `
+      <button class="sidebar-source-item${active ? ' active' : ''}${h.count ? '' : ' is-empty'}"
+              data-harness="${h.id === 'all' ? '' : h.id}"
+              ${unreadable ? 'disabled title="Detected on this machine, but its transcript format is not read yet"' : ''}
+              onclick="selectDataSource('${h.id === 'all' ? '' : h.id}')">
+        <span class="source-icon" aria-hidden="true">${h.icon || ''}</span>
+        <span class="source-name">${escapeHtml(h.name)}</span>
+        ${unreadable
+          ? '<span class="source-pill mono" title="Not readable yet">\u2013</span>'
+          : `<span class="source-pill mono">${h.count || 0}</span>`}
+      </button>
+    `;
+  }).join('');
+}
+
+function renderServerList() {
+  const host = document.getElementById('sidebarServerList');
+  const cat = state.catalog;
+  if (!host || !cat) return;
+
+  // Online, or installed but stopped. A never-installed engine is not listed.
+  const rows = (cat.servers || []).filter(s => s.online || s.installed);
+  const group = document.getElementById('groupServers');
+  if (group) group.hidden = rows.length === 0;
+
+  host.innerHTML = rows.map(s => `
+    <button class="sidebar-server-item${s.online ? ' is-online' : ''}"
+            data-server="${s.id}" onclick="showServerPanel('${s.id}')"
+            title="${escapeHtml(s.name)} on port ${s.port}${s.installed ? '' : ' (not installed)'}">
+      <span class="source-icon" aria-hidden="true">${s.icon || ''}</span>
+      <span class="server-meta">
+        <span class="source-name">${escapeHtml(s.name)}</span>
+        <span class="server-port mono">:${s.port}</span>
+      </span>
+      <span class="status-chip mono ${s.online ? 'online' : 'offline'}">${s.online ? 'Online' : 'Offline'}</span>
+    </button>
+  `).join('');
+
+  const dots = document.getElementById('sidebarBackendStatus');
+  if (dots) {
+    dots.innerHTML = rows.slice(0, 4).map(s => `
+      <div class="backend-dot-status ${s.online ? 'online' : 'offline'}" title="${escapeHtml(s.name)} :${s.port}">
+        <span class="dot${s.online ? '' : ' red'}"></span>
+        <span class="mono">${escapeHtml(s.name.split(' ')[0].toUpperCase())}</span>
+      </div>
+    `).join('');
+  }
+}
+
+// Settings: the full catalog, so it is clear what was looked for and not found.
+function renderCatalogTable() {
+  const host = document.getElementById('catalogTable');
+  const cat = state.catalog;
+  if (!host || !cat) return;
+
+  const stamp = document.getElementById('catalogStamp');
+  if (stamp) stamp.textContent = 'Last scanned ' + (cat.scanned_at || 'never').replace('T', ' ');
+
+  const srcRow = c => `
+    <tr class="${c.detected ? '' : 'is-absent'}">
+      <td>${c.icon || ''} ${escapeHtml(c.name)}</td>
+      <td class="mono">${c.kind}</td>
+      <td>${c.detected
+            ? (c.readable ? '<span class="tag" data-tone="good">read</span>'
+                          : '<span class="tag" data-tone="warn">found, not read</span>')
+            : '<span class="tag" data-tone="neutral">absent</span>'}</td>
+      <td class="mono sys-val">${c.path ? escapeHtml(c.path) : '\u2013'}</td>
+    </tr>`;
+
+  const srvRow = s => `
+    <tr class="${(s.online || s.installed) ? '' : 'is-absent'}">
+      <td>${s.icon || ''} ${escapeHtml(s.name)}</td>
+      <td class="mono">:${s.port}</td>
+      <td>${s.online ? '<span class="tag" data-tone="good">online</span>'
+                     : s.installed ? '<span class="tag" data-tone="warn">installed, stopped</span>'
+                                   : '<span class="tag" data-tone="neutral">not installed</span>'}</td>
+      <td class="mono sys-val">${s.install_path ? escapeHtml(s.install_path) : '\u2013'}</td>
+    </tr>`;
+
+  const sources = (cat.sources || []).slice().sort((a, b) => (b.detected - a.detected) || a.name.localeCompare(b.name));
+  const servers = (cat.servers || []).slice().sort((a, b) => (b.online - a.online) || (b.installed - a.installed) || a.name.localeCompare(b.name));
+
+  host.innerHTML = `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Data source</th><th>Kind</th><th>Status</th><th>Path</th></tr></thead>
+        <tbody>${sources.map(srcRow).join('')}</tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-block-start:1rem;">
+      <table class="data-table">
+        <thead><tr><th>Local server</th><th>Port</th><th>Status</th><th>Install</th></tr></thead>
+        <tbody>${servers.map(srvRow).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ============================================================
 // PAGES
 // Adding a page is one registry entry: no router edit, no markup edit, no
 // toolbar edit. A page declares which top-bar controls apply to it, so
@@ -3416,6 +3553,7 @@ window.addEventListener('DOMContentLoaded', () => {
   renderDashboardMenu();
 
   // 4. Data.
+  fetchCatalog();
   fetchStats();
   fetchTimeseries();
   fetchSessions();
