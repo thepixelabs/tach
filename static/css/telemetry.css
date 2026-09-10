@@ -3916,9 +3916,33 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 .data-table tbody tr:hover { background: var(--surface-1); }
 
 /* Bar rows: cap the measure so a 4-column list does not stretch to 1100px. */
-.bar-row-label { inline-size: clamp(6rem, 30%, 12rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-row-track { max-inline-size: 34rem; }
-.bar-row-val { min-inline-size: 5rem; text-align: end; font-variant-numeric: tabular-nums; }
+/* The label is capped so it does not eat the chart, but the track is NOT:
+   a bar gains real resolution from width, unlike prose. Capping it was what
+   left a wide card half empty. */
+.bar-row-label {
+  inline-size: clamp(6rem, 22%, 14rem);
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-row-track {
+  flex: 1 1 auto;
+  min-inline-size: 3rem;
+  max-inline-size: none;
+}
+
+/* Wide enough for "182.1k (43%)" on one line; a wrapping value made that row
+   taller than its neighbours. */
+.bar-row-val {
+  inline-size: auto;
+  min-inline-size: 7.5rem;
+  flex: 0 0 auto;
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Bar rows keep a legible minimum but do not stretch unboundedly; the
    surrounding space-evenly distribution absorbs the remainder. */

@@ -349,7 +349,7 @@ const PANEL_REGISTRY = {
     icon: '🔧',
     description: 'Frequency ranking of tool calls (read, bash, edit, mcp) executed during sessions.',
     defaultCol: 4,
-    defaultRows: 4,
+    defaultRows: 5,
     render: renderToolUsagePanel,
   },
   'token-volume': {
