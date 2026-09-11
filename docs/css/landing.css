@@ -1,0 +1,513 @@
+/* ============================================================
+   Tach - landing page
+
+   One palette, two themes. Dark is the default; light follows
+   the PixeLabs house style: tinted off-white surfaces with
+   accent-tinted borders, never paper white.
+
+   Every colour here is a token. Components read tokens only.
+   ============================================================ */
+
+:root {
+  /* surfaces */
+  --bg:        #05070D;
+  --bg-raise:  #0A0E18;
+  --card:      #FAF9FC;
+  --card:      #101725;
+  --card-2:    #161E30;
+
+  /* lines: --line separates areas, --line-2 bounds controls and
+     cards, --line-shot frames the product screenshots (they need
+     the firmest edge because the image content reaches the frame) */
+  --line:      rgba(255,255,255,0.11);
+  --line-2:    rgba(255,255,255,0.20);
+  --line-shot: rgba(255,255,255,0.24);
+
+  /* text */
+  --text:      #F1F5F9;
+  --text-sub:  #A6B2C6;
+  --text-mute: #6D7C93;
+
+  /* accent. --accent is for marks and focus rings, --accent-text
+     for small accent-coloured text, --accent-solid for filled
+     controls where the label is white. They differ because each
+     has a different contrast floor to clear. */
+  --accent:             #6366F1;
+  --accent-2:           #818CF8;
+  --accent-text:        #818CF8;
+  --accent-solid:       #5754EC;
+  --accent-solid-hover: #4A42DE;
+
+  --shadow-card: 0 1px 2px rgba(0,0,0,.45), 0 8px 24px rgba(0,0,0,.30);
+  --shadow-shot: 0 2px 6px rgba(0,0,0,.50), 0 34px 70px -24px rgba(0,0,0,.75);
+
+  --r-lg: 16px;
+  --r-md: 10px;
+  --r-sm: 6px;
+
+  --font-display: 'Outfit', 'Outfit fallback', system-ui, -apple-system, sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Jakarta fallback', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Mono fallback', ui-monospace, SFMono-Regular, monospace;
+
+  --wrap: 1560px;
+  --edge-rgb: 0, 0, 0;
+  --ease: cubic-bezier(.16,1,.3,1);
+  color-scheme: dark;
+}
+
+/* The light palette is defined once and applied from two places:
+   the system preference, and the explicit [data-theme] override. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:        #F4F2F7;
+    --bg-raise:  #EAE8F0;
+    --card:      #FAF9FC;
+    --card-2:    #F0EEF5;
+
+    --line:      rgba(60, 52, 110, 0.24);
+    --line-2:    rgba(60, 52, 110, 0.40);
+    --line-shot: rgba(60, 52, 110, 0.46);
+
+    --text:      #1A1B26;
+    --text-sub:  #3D3F52;
+    --text-mute: #61657E;
+
+    --accent:             #4F46E5;
+    --accent-2:           #4338CA;
+    --accent-text:        #4F46E5;
+    --accent-solid:       #4F46E5;
+    --accent-solid-hover: #4338CA;
+
+    --shadow-card: 0 1px 2px rgba(38,32,72,.07), 0 8px 24px -8px rgba(38,32,72,.16);
+    --shadow-shot: 0 2px 6px rgba(38,32,72,.09), 0 30px 60px -22px rgba(38,32,72,.38);
+
+    --edge-rgb: 60, 40, 110;
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --bg:        #F4F2F7;
+  --bg-raise:  #EAE8F0;
+  --card:      #FAF9FC;
+  --card-2:    #F0EEF5;
+
+  --line:      rgba(60, 52, 110, 0.24);
+  --line-2:    rgba(60, 52, 110, 0.40);
+  --line-shot: rgba(60, 52, 110, 0.46);
+
+  --text:      #1A1B26;
+  --text-sub:  #3D3F52;
+  --text-mute: #61657E;
+
+  --accent:             #4F46E5;
+  --accent-2:           #4338CA;
+  --accent-text:        #4F46E5;
+  --accent-solid:       #4F46E5;
+  --accent-solid-hover: #4338CA;
+
+  --shadow-card: 0 1px 2px rgba(38,32,72,.07), 0 8px 24px -8px rgba(38,32,72,.16);
+  --shadow-shot: 0 2px 6px rgba(38,32,72,.09), 0 30px 60px -22px rgba(38,32,72,.38);
+
+  --edge-rgb: 60, 40, 110;
+  color-scheme: light;
+}
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-wrap: balance;
+}
+p { margin: 0; text-wrap: pretty; }
+a { color: inherit; }
+
+/* Anchors land below the sticky header rather than under it. */
+[id] { scroll-margin-top: 96px; }
+
+.wrap {
+  width: 100%;
+  max-width: var(--wrap);
+  margin-inline: auto;
+  padding-inline: clamp(20px, 4vw, 72px);
+}
+
+/* ---------- nav ---------- */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.nav__in {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; height: 78px;
+}
+.nav__links { display: flex; align-items: center; gap: 14px; }
+
+/* The wordmark and the attribution read as one unit on a single line,
+   with the credit set smaller and quieter so it never competes. */
+.nav__brand {
+  display: flex;
+  /* centre, not baseline: the badge makes the baselines disagree
+     with the optical centre of the wordmark */
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.brand {
+  display: flex; align-items: center; gap: 13px;
+  text-decoration: none; min-width: 0;
+}
+.brand__badge {
+  width: 38px; height: 38px; flex: none; border-radius: 11px;
+  background: linear-gradient(150deg, var(--accent), var(--accent-2));
+  display: grid; place-items: center; color: #fff;
+}
+.brand__badge svg { width: 23px; height: 23px; }
+.brand__badge--sm { width: 28px; height: 28px; border-radius: 8px; }
+.brand__badge--sm svg { width: 17px; height: 17px; }
+.brand__name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 27px;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.nav__by {
+  font-size: 13.5px;
+  line-height: 1;
+  color: var(--text-mute);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color .18s var(--ease);
+}
+.nav__by:hover { color: var(--accent); }
+.nav__by b { font-weight: 600; color: var(--text-sub); }
+/* ---------- theme switch ---------- */
+.themes {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px; border-radius: 99px;
+  border: 1px solid var(--line-2); background: var(--card-2);
+}
+.themes__btn {
+  display: grid; place-items: center;
+  width: 30px; height: 28px; padding: 0;
+  border: 0; border-radius: 99px; background: transparent;
+  color: var(--text-sub); cursor: pointer;
+  transition: color .18s var(--ease), background .18s var(--ease);
+}
+.themes__btn:hover { color: var(--text); }
+.themes__btn svg { width: 15px; height: 15px; }
+.themes__btn[aria-pressed="true"] { background: var(--accent-solid); color: #fff; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-radius: var(--r-md);
+  border: 1px solid var(--line-2); background: var(--card-2);
+  color: var(--text); font: 600 14px/1 var(--font-body);
+  text-decoration: none; white-space: nowrap;
+  transition: border-color .18s var(--ease), background .18s var(--ease);
+}
+.btn:hover { border-color: var(--accent); background: var(--card); }
+.btn--solid {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: #fff;
+}
+.btn--solid:hover {
+  background: var(--accent-solid-hover);
+  border-color: var(--accent-solid-hover);
+}
+
+/* ---------- hero ---------- */
+.hero { padding: 76px 0 clamp(48px, 5vw, 88px); }
+.hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0,1.25fr) minmax(0,.75fr);
+  gap: clamp(32px,4.5vw,88px);
+  align-items: start;
+}
+.hero__grid > * { min-width: 0; }
+
+.hero h1 {
+  font-size: clamp(2.3rem, 4.6vw, 4.4rem);
+  line-height: 1.04;
+  margin-bottom: 22px;
+}
+.hero__sub {
+  font-size: clamp(1.05rem, 1.3vw, 1.3rem);
+  color: var(--text-sub);
+  max-width: 58ch;
+  margin-bottom: 34px;
+}
+.hero__note { margin-top: 14px; font-size: 14.5px; color: var(--text-mute); }
+
+.cmd {
+  border: 1px solid var(--line-2); border-radius: var(--r-md);
+  background: var(--card-2); overflow: hidden; max-width: 680px;
+  min-width: 0;
+}
+.cmd__code {
+  margin: 0; padding: 16px 18px;
+  font: 400 13.5px/1.85 var(--font-mono);
+  color: var(--text); overflow-x: auto; white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Two different kinds of thing live here (the agents it reads, and
+   the model servers it watches), so each group gets a label. */
+.facts {
+  display: grid; gap: 0; align-content: start;
+  margin: 0; padding-top: 4px;
+}
+.facts dt {
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--text-mute);
+  padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line);
+}
+.facts dt:first-child { padding-top: 0; margin-top: 0; border-top: 0; }
+.facts dd { margin: 6px 0 0; font-size: 16px; color: var(--text); line-height: 1.5; }
+
+/* ---------- sections ---------- */
+.section {
+  position: relative;
+  padding: clamp(56px, 6vw, 112px) 0;
+  border-top: 1px solid var(--line);
+}
+.section > .wrap { position: relative; z-index: 1; }
+.section p + p { margin-top: 12px; }
+
+.section__lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: clamp(28px, 4vw, 80px);
+  align-items: start;
+  margin-bottom: clamp(32px, 3.4vw, 56px);
+}
+/* A section whose only content is its lead should not carry the
+   trailing gap meant to separate the lead from what follows. */
+.section__lead:last-child { margin-bottom: 0; }
+.section__lead p { color: var(--text-sub); font-size: 1.05rem; max-width: 60ch; }
+.section__lead > div > p + p { margin-top: 14px; }
+.lead__cta { margin-top: 24px; }
+
+.section h2 {
+  font-size: clamp(1.75rem, 2.9vw, 3rem);
+  line-height: 1.08;
+  margin: 0;
+  /* Holds the display measure in the two-up lead. Released below,
+     where the lead stacks and the heading owns the full width. */
+  max-width: 19ch;
+}
+.section h2.h2--solo {
+  font-size: clamp(1.75rem, 2.6vw, 2.6rem);
+  margin: 0 0 26px;
+  max-width: none;
+}
+
+/* Alternating bands. Each band carries a step in surface, a rule at
+   the boundary, and a soft gradient so the edge is visible rather
+   than inferred. */
+.section--alt { background: var(--bg-raise); }
+.section--alt::before,
+.section--alt::after {
+  content: "";
+  position: absolute; left: 0; right: 0; height: 90px;
+  pointer-events: none;
+}
+.section--alt::before {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(var(--edge-rgb), .055), transparent);
+}
+.section--alt::after {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(var(--edge-rgb), .055), transparent);
+}
+
+/* ---------- product screenshots ---------- */
+.shot {
+  margin: 0;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  border: 1px solid var(--line-shot);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  line-height: 0;
+}
+/* Two shots in a row read as one sequence, not two exhibits. */
+.shot + .shot { margin-top: clamp(18px, 1.8vw, 28px); }
+.shot img { width: 100%; height: auto; display: block; }
+
+/* The hero shot is the page's主 visual and carries real lift. */
+.hero .shot {
+  margin-top: clamp(40px, 3.8vw, 56px);
+  box-shadow: var(--shadow-shot);
+}
+
+/* Every screenshot follows the theme. These have to outrank
+   `.shot img`, which sets display:block, so they are qualified. */
+.shot img.shot--light { display: none; }
+.shot img.shot--dark  { display: block; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .shot img.shot--dark  { display: none; }
+  :root:not([data-theme="dark"]) .shot img.shot--light { display: block; }
+}
+:root[data-theme="light"] .shot img.shot--dark  { display: none; }
+:root[data-theme="light"] .shot img.shot--light { display: block; }
+:root[data-theme="dark"]  .shot img.shot--dark  { display: block; }
+:root[data-theme="dark"]  .shot img.shot--light { display: none; }
+
+/* ---------- stats ---------- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: clamp(16px, 1.6vw, 28px);
+}
+.stat {
+  border: 1px solid var(--line-2); border-radius: var(--r-lg);
+  background: var(--card); box-shadow: var(--shadow-card);
+  padding: clamp(24px, 2.2vw, 38px);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.stat__n {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: clamp(2.6rem, 3.4vw, 4rem);
+  line-height: 1; letter-spacing: -.03em;
+}
+.stat__u { font-family: var(--font-mono); font-size: 13px; color: var(--accent-text); }
+.stat__d { margin-top: 8px; font-size: 14.5px; color: var(--text-sub); }
+
+/* ---------- what it supports ---------- */
+.support {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(24px, 3vw, 56px);
+}
+.support__h {
+  font-family: var(--font-mono);
+  font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-mute); font-weight: 400;
+  margin: 0 0 14px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-2);
+}
+.support__list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 7px 16px;
+}
+.support__list li {
+  font-size: 15px; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+.support__list li::before {
+  content: ""; width: 5px; height: 5px; flex: none;
+  border-radius: 99px; background: var(--accent);
+}
+.support__list--muted li { color: var(--text-mute); }
+.support__list--muted li::before { background: var(--text-mute); opacity: .55; }
+.support__note { margin-top: 16px; font-size: 13.5px; color: var(--text-mute); max-width: 34ch; }
+
+/* ---------- setup ---------- */
+.setup {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  gap: clamp(32px, 5vw, 96px);
+  align-items: start;
+}
+.setup > * { min-width: 0; }
+.setup__cta { margin-top: 18px; }
+.setup__notes { display: grid; gap: 14px; color: var(--text-sub); font-size: 15.5px; }
+.setup__notes b { color: var(--text); font-weight: 600; }
+
+.muted { color: var(--text-mute); font-size: 14px; }
+
+/* ---------- footer ---------- */
+.foot { border-top: 1px solid var(--line); padding: 34px 0 42px; }
+.foot__in { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.foot__brand { display: flex; align-items: center; gap: 12px; }
+.foot__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.foot__meta { font-size: 13.5px; color: var(--text-mute); margin-top: 2px; }
+/* A link inside a sentence needs more than colour to be a link. */
+.foot__meta a {
+  color: var(--text-sub);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.foot__meta a:hover { color: var(--accent); text-decoration-color: currentColor; }
+.foot__links { display: flex; gap: 22px; flex-wrap: wrap; }
+.foot__links a { color: var(--text-sub); text-decoration: none; font-size: 14.5px; transition: color .18s var(--ease); }
+.foot__links a:hover { color: var(--accent); }
+
+/* ---------- a11y ---------- */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ============================================================
+   Responsive. Mobile-first would suit a new build; this page is
+   desktop-down, so the overrides live together at the end where
+   the cascade order is obvious.
+   ============================================================ */
+
+@media (max-width: 980px) {
+  .hero { padding: 56px 0 clamp(40px, 6vw, 56px); }
+  .hero__grid { grid-template-columns: 1fr; gap: 40px; }
+  .facts { padding-top: 0; }
+}
+
+@media (max-width: 900px) {
+  .section__lead { grid-template-columns: 1fr; gap: 14px; }
+  /* Stacked, the heading owns the column; the display measure that
+     shaped the two-up lead would strand it at a third of the width. */
+  .section h2 { max-width: none; }
+  .setup { grid-template-columns: 1fr; gap: 28px; }
+}
+
+@media (max-width: 860px) { .support { grid-template-columns: 1fr; gap: 32px; } }
+
+@media (max-width: 780px) { .stats { grid-template-columns: 1fr; gap: 16px; } }
+
+@media (max-width: 720px) { .section { padding: 52px 0; } }
+
+@media (max-width: 700px) { .nav__by { display: none; } }
+
+/* Small screens: the clone URL is the widest thing on the page. Let
+   it wrap rather than scroll, so nothing forces the document wider
+   than the viewport. */
+@media (max-width: 640px) {
+  .cmd__code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
+}
+
+@media (max-width: 620px) {
+  .brand { gap: 10px; }
+  .brand__name { font-size: 22px; }
+  .brand__badge { width: 34px; height: 34px; border-radius: 10px; }
+  .brand__badge svg { width: 21px; height: 21px; }
+  .nav__in { height: 68px; }
+  .nav__links { gap: 10px; }
+}
+
+@media (max-width: 420px) { .support__list { grid-template-columns: 1fr; } }

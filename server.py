@@ -1,7 +1,8 @@
 """
-Token Telemetry & Model Observatory Server
+Tach Server
 Serves real-time and historic performance data from local LLM harnesses:
-OpenCode, OpenClaw, Aider, Continue, MLX Server, and Ollama.
+OpenCode, OpenClaw, Hermes, Aider, Continue, Cline, Roo Code, Zed,
+Goose, LM Studio and Jan, plus whichever local inference servers are running.
 """
 
 import os
@@ -290,9 +291,60 @@ def check_live_status():
                 "size_vram_gb": round(active_model.get("size_vram", 0) / (1024**3), 2) if active_model else 0,
                 "context_length": active_model.get("context_length") if active_model else 0,
                 "count": len(models),
+                "loaded": [
+                    {
+                        "name": m.get("name"),
+                        "vram_gb": round(m.get("size_vram", 0) / (1024**3), 2),
+                        "context": m.get("context_length") or 0,
+                        "expires_at": m.get("expires_at"),
+                    }
+                    for m in models
+                ],
             }
     except Exception:
         pass
+
+    # Ollama again, for what is installed rather than what is resident. This is
+    # the inventory the Engines page shows: family, parameter size, quantisation
+    # and the context each model was built with.
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "Telemetry"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode())
+            installed = []
+            for m in (data.get("models") or []):
+                det = m.get("details") or {}
+                installed.append({
+                    "name": m.get("name"),
+                    "size_gb": round((m.get("size") or 0) / (1024**3), 2),
+                    "family": det.get("family"),
+                    "parameters": det.get("parameter_size"),
+                    "quantization": det.get("quantization_level"),
+                    "context": det.get("context_length") or 0,
+                    "modified": m.get("modified_at"),
+                })
+            installed.sort(key=lambda x: -(x["size_gb"] or 0))
+            status["ollama"]["online"] = True
+            det = status["ollama"].get("details") or {}
+            det["installed"] = installed
+            det["installed_count"] = len(installed)
+            status["ollama"]["details"] = det
+    except Exception:
+        pass
+
+    # Engines that speak the OpenAI model list can at least tell us what they
+    # are serving, which is more than a reachability dot.
+    for eid, port in (("lmstudio", 1234), ("vllm", 8000), ("localai", 8081), ("jan_server", 1337)):
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models",
+                                         headers={"User-Agent": "Telemetry"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                data = json.loads(resp.read().decode())
+                ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
+                if ids:
+                    status[eid] = {"online": True, "details": {"served": ids, "count": len(ids)}}
+        except Exception:
+            pass
 
     # Check llama.cpp (:8077)
     try:
@@ -300,8 +352,13 @@ def check_live_status():
         with urllib.request.urlopen(req, timeout=1.0) as resp:
             data = json.loads(resp.read().decode())
             status["llamacpp"]["online"] = True
+            gen = data.get("default_generation_settings") or {}
+            model_path = data.get("model_path") or gen.get("model") or ""
             status["llamacpp"]["details"] = {
-                "context": data.get("default_generation_settings", {}).get("n_ctx", 0)
+                "context": gen.get("n_ctx", 0),
+                "model": str(model_path).split("/")[-1] if model_path else None,
+                "slots": data.get("total_slots") or gen.get("n_parallel") or 0,
+                "chat_format": data.get("chat_format"),
             }
     except Exception:
         pass
@@ -374,28 +431,54 @@ def get_harness_inventory():
     """
     opencode_n = count_opencode_sessions()
     openclaw_n = len(get_openclaw_sessions())
-    claudecode_n = len(get_claude_code_sessions())
+    hermes_n = len(get_hermes_sessions())
+    cline_n = len(get_cline_sessions())
+    roo_n = len(get_roo_sessions())
+    zed_n = len(get_zed_sessions())
+    goose_n = len(get_goose_sessions())
+    lmstudio_n = len(get_lmstudio_sessions())
+    jan_n = len(get_jan_sessions())
     aider_files = scan_aider_history()
     continue_files = scan_continue_sessions()
 
     catalog = {c["id"]: c for c in get_catalog()["sources"]}
 
     rows = [
-        {"id": "all", "name": "All Sources", "icon": "\U0001F310", "detected": True,
-         "count": opencode_n + openclaw_n + claudecode_n + len(aider_files) + len(continue_files)},
-        {"id": "opencode", "name": "OpenCode", "icon": "\u26A1",
+        {"id": "all", "name": "All Sources", "icon": "globe", "detected": True,
+         "count": (opencode_n + openclaw_n + hermes_n + cline_n + roo_n + zed_n
+                   + goose_n + lmstudio_n + jan_n + len(aider_files) + len(continue_files))},
+        {"id": "opencode", "name": "OpenCode", "icon": "opencode",
          "detected": catalog.get("opencode", {}).get("detected", False),
          "path": sanitize_path(str(CONFIG["opencode_db"])), "count": opencode_n},
-        {"id": "claudecode", "name": "Claude Code", "icon": "\u2733\uFE0F",
-         "detected": catalog.get("claudecode", {}).get("detected", False),
-         "path": catalog.get("claudecode", {}).get("path"), "count": claudecode_n},
-        {"id": "openclaw", "name": "OpenClaw", "icon": "\U0001F43E",
+        {"id": "hermes", "name": "Hermes Agent", "icon": "hermes",
+         "detected": len(hermes_state_dbs()) > 0,
+         "path": sanitize_path(str(hermes_state_dbs()[0])) if hermes_state_dbs() else None,
+         "count": hermes_n},
+        {"id": "openclaw", "name": "OpenClaw", "icon": "paw",
          "detected": len(CONFIG["openclaw_homes"]) > 0,
          "path": sanitize_path(str(CONFIG["openclaw_homes"][0])) if CONFIG["openclaw_homes"] else None,
          "count": openclaw_n},
-        {"id": "aider", "name": "Aider", "icon": "\U0001F916",
+        {"id": "cline", "name": "Cline", "icon": "cline",
+         "detected": cline_n > 0 or catalog.get("cline", {}).get("detected", False),
+         "path": catalog.get("cline", {}).get("path"), "count": cline_n},
+        {"id": "roo", "name": "Roo Code", "icon": "rabbit",
+         "detected": roo_n > 0 or catalog.get("roo", {}).get("detected", False),
+         "path": catalog.get("roo", {}).get("path"), "count": roo_n},
+        {"id": "zed", "name": "Zed", "icon": "zed",
+         "detected": zed_n > 0 or catalog.get("zed", {}).get("detected", False),
+         "path": catalog.get("zed", {}).get("path"), "count": zed_n},
+        {"id": "goose", "name": "Goose", "icon": "bird",
+         "detected": goose_n > 0 or catalog.get("goose", {}).get("detected", False),
+         "path": catalog.get("goose", {}).get("path"), "count": goose_n},
+        {"id": "lmstudio", "name": "LM Studio", "icon": "lmstudio",
+         "detected": lmstudio_n > 0 or catalog.get("lmstudio_chat", {}).get("detected", False),
+         "path": catalog.get("lmstudio_chat", {}).get("path"), "count": lmstudio_n},
+        {"id": "jan", "name": "Jan", "icon": "atom",
+         "detected": jan_n > 0 or catalog.get("jan", {}).get("detected", False),
+         "path": catalog.get("jan", {}).get("path"), "count": jan_n},
+        {"id": "aider", "name": "Aider", "icon": "squareTerminal",
          "detected": len(aider_files) > 0, "count": len(aider_files)},
-        {"id": "continue", "name": "Continue", "icon": "\U0001F680",
+        {"id": "continue", "name": "Continue", "icon": "arrows",
          "detected": len(continue_files) > 0, "count": len(continue_files)},
     ]
 
@@ -500,8 +583,20 @@ def get_all_stats(query_params=None):
         harness_sessions = []
         if harness_filter == "openclaw":
             harness_sessions = get_openclaw_sessions()
-        elif harness_filter == "claudecode":
-            harness_sessions = get_claude_code_sessions()
+        elif harness_filter == "hermes":
+            harness_sessions = get_hermes_sessions()
+        elif harness_filter == "cline":
+            harness_sessions = get_cline_sessions()
+        elif harness_filter == "roo":
+            harness_sessions = get_roo_sessions()
+        elif harness_filter == "zed":
+            harness_sessions = get_zed_sessions()
+        elif harness_filter == "goose":
+            harness_sessions = get_goose_sessions()
+        elif harness_filter == "lmstudio":
+            harness_sessions = get_lmstudio_sessions()
+        elif harness_filter == "jan":
+            harness_sessions = get_jan_sessions()
         elif harness_filter == "aider":
             harness_sessions = get_aider_sessions()
         elif harness_filter == "continue":
@@ -1603,8 +1698,14 @@ def get_sessions(query_params):
     if not harness_filter or harness_filter in ["openclaw", "all"]:
         all_raw_sessions.extend(get_openclaw_sessions())
 
-    if not harness_filter or harness_filter in ["claudecode", "all"]:
-        all_raw_sessions.extend(get_claude_code_sessions())
+    if not harness_filter or harness_filter in ["hermes", "all"]:
+        all_raw_sessions.extend(get_hermes_sessions())
+
+    for _hid, _fetch in (("cline", get_cline_sessions), ("roo", get_roo_sessions),
+                         ("zed", get_zed_sessions), ("goose", get_goose_sessions),
+                         ("lmstudio", get_lmstudio_sessions), ("jan", get_jan_sessions)):
+        if not harness_filter or harness_filter in [_hid, "all"]:
+            all_raw_sessions.extend(_fetch())
 
     # 3. Fetch Aider sessions if selected
     if not harness_filter or harness_filter in ["aider", "all"]:
@@ -2027,178 +2128,829 @@ def get_file_churn(turns, limit=12):
 
 
 # ============================================================
-# CLAUDE CODE
-# Sessions live as JSONL under ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl.
-# Usage carries cache creation/read and thinking tokens separately, so the
-# same billed-input vs context distinction applies here as elsewhere.
+# HERMES AGENT  (NousResearch/hermes-agent)
+# Sessions live in a SQLite state.db under HERMES_HOME (default ~/.hermes),
+# with named profiles at <root>/profiles/<name>/state.db. The sessions table
+# already carries per-session token and cost totals, so no message walk is
+# needed for the list view.
+#
+# Columns are read by introspection rather than a fixed SELECT: the project is
+# under heavy development and its schema gains columns often, so asking for one
+# that does not exist yet would break the whole source.
 # ============================================================
 
-def claude_code_root():
-    root = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
-    return root if root.is_dir() else None
+def resolve_hermes_homes():
+    homes = []
 
-
-def scan_claude_code_files(limit=400):
-    root = claude_code_root()
-    if not root:
-        return []
-    files = []
-    try:
-        for proj in sorted(root.iterdir()):
-            if not proj.is_dir():
-                continue
-            for f in proj.glob("*.jsonl"):
-                files.append(f)
-    except Exception:
-        return []
-    # Newest first; a machine can accumulate thousands of these.
-    files.sort(key=lambda f: f.stat().st_mtime if f.exists() else 0, reverse=True)
-    return files[:limit]
-
-
-def parse_claude_code_session(path):
-    try:
-        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    except Exception:
-        return None
-
-    title = None
-    ai_title = None
-    cwd = None
-    model = None
-    version = None
-    branch = None
-    session_id = path.stem
-
-    tok_in = tok_out = tok_reasoning = tok_cache_read = tok_cache_write = 0
-    first_ts = last_ts = None
-    user_turns = assistant_turns = 0
-    has_tools = False
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    def add(candidate):
         try:
-            ev = json.loads(line)
+            path = Path(candidate).expanduser()
         except Exception:
-            continue
+            return
+        if path.is_dir() and path not in homes:
+            homes.append(path)
 
-        etype = ev.get("type")
-        if etype == "ai-title" and ev.get("aiTitle"):
-            ai_title = ev["aiTitle"]
-            continue
-        if etype not in ("user", "assistant"):
-            continue
+    h = Path.home()
+    roots = []
 
-        cwd = ev.get("cwd") or cwd
-        version = ev.get("version") or version
-        branch = ev.get("gitBranch") or branch
-        session_id = ev.get("sessionId") or session_id
+    # An explicit HERMES_HOME may itself be a root holding named profiles.
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    if env_home:
+        add(env_home)
+        roots.append(Path(env_home).expanduser())
 
-        ts = ev.get("timestamp")
-        if ts:
+    roots.append(h / ".hermes")
+
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        roots.append(Path(local_appdata) / "hermes")
+
+    for root in roots:
+        add(root)
+        # Named profiles each keep their own transcript database.
+        profiles = root / "profiles"
+        if profiles.is_dir():
             try:
-                ms = int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000)
-                first_ts = ms if first_ts is None else min(first_ts, ms)
-                last_ts = ms if last_ts is None else max(last_ts, ms)
+                for prof in sorted(profiles.iterdir()):
+                    if prof.is_dir():
+                        add(prof)
             except Exception:
                 pass
 
-        msg = ev.get("message") or {}
-        if etype == "user":
-            user_turns += 1
-            if title is None:
-                content = msg.get("content")
-                text = content if isinstance(content, str) else ""
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text = part.get("text") or ""
-                            break
-                text = (text or "").strip()
-                # Skip tool-result echoes and command wrappers.
-                if text and not text.startswith("<") and not text.startswith("Caveat:"):
-                    title = text.splitlines()[0][:120]
-        else:
-            assistant_turns += 1
-            model = msg.get("model") or model
-            u = msg.get("usage") or {}
-            tok_in += int(u.get("input_tokens") or 0)
-            tok_out += int(u.get("output_tokens") or 0)
-            tok_cache_read += int(u.get("cache_read_input_tokens") or 0)
-            tok_cache_write += int(u.get("cache_creation_input_tokens") or 0)
-            details = u.get("output_tokens_details") or {}
-            tok_reasoning += int(details.get("thinking_tokens") or 0)
-            content = msg.get("content")
-            if isinstance(content, list) and any(
-                isinstance(c, dict) and c.get("type") == "tool_use" for c in content
-            ):
-                has_tools = True
+    # A home is only useful if it actually holds a state database.
+    return [hh for hh in homes if (hh / "state.db").exists()]
 
-    if not assistant_turns and not user_turns:
+
+def hermes_state_dbs():
+    return [hh / "state.db" for hh in resolve_hermes_homes()]
+
+
+def _table_columns(conn, table):
+    try:
+        c = conn.cursor()
+        c.execute(f"PRAGMA table_info({table})")
+        return {row[1] for row in c.fetchall()}
+    except Exception:
+        return set()
+
+
+_HERMES_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_hermes_sessions():
+    now = time.time()
+    if _HERMES_CACHE["rows"] is not None and (now - _HERMES_CACHE["at"]) < 45:
+        return _HERMES_CACHE["rows"]
+
+    rows = []
+    for db_path in hermes_state_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except Exception:
+            continue
+        try:
+            cols = _table_columns(conn, "sessions")
+            if not cols or "id" not in cols:
+                continue
+
+            wanted = [
+                "id", "title", "display_name", "model", "source", "cwd", "git_branch",
+                "started_at", "ended_at", "last_activity_at", "message_count",
+                "tool_call_count", "input_tokens", "output_tokens", "cache_read_tokens",
+                "cache_write_tokens", "reasoning_tokens", "actual_cost_usd",
+                "estimated_cost_usd", "parent_session_id", "profile_name", "archived",
+                "billing_provider",
+            ]
+            select = [c for c in wanted if c in cols]
+            order = "last_activity_at" if "last_activity_at" in cols else "started_at"
+
+            c = conn.cursor()
+            c.execute(f"SELECT {', '.join(select)} FROM sessions ORDER BY {order} DESC LIMIT 500")
+            for record in c.fetchall():
+                r = dict(zip(select, record))
+                if r.get("archived"):
+                    continue
+
+                # Hermes stores seconds as REAL; everything here is milliseconds.
+                started = float(r.get("started_at") or 0) * 1000
+                ended = float(r.get("ended_at") or r.get("last_activity_at") or 0) * 1000
+                duration_s = max(0.0, (ended - started) / 1000.0) if (started and ended) else 0.0
+
+                tok_out = int(r.get("output_tokens") or 0)
+                tok_reason = int(r.get("reasoning_tokens") or 0)
+                generated = tok_out + tok_reason
+                tps = round(generated / duration_s, 1) if (duration_s > 0.5 and generated) else 0.0
+
+                directory = r.get("cwd") or str(db_path.parent)
+                cost = r.get("actual_cost_usd")
+                if cost in (None, 0):
+                    cost = r.get("estimated_cost_usd") or 0.0
+
+                rows.append({
+                    "id": str(r.get("id")),
+                    "harness": "hermes",
+                    "title": r.get("title") or r.get("display_name") or "Hermes session",
+                    "directory": sanitize_path(directory),
+                    "folder": Path(directory).name if directory else "hermes",
+                    "model": r.get("model") or "unknown",
+                    "provider": r.get("billing_provider") or "hermes",
+                    "branch": r.get("git_branch"),
+                    "profile": r.get("profile_name"),
+                    "channel": r.get("source") or "cli",
+                    "is_subagent": bool(r.get("parent_session_id")),
+                    "date_str": datetime.fromtimestamp(started / 1000).strftime("%Y-%m-%d %H:%M") if started else "Recent",
+                    "time_created": int(started),
+                    "duration_s": round(duration_s, 1),
+                    "tokens_input": int(r.get("input_tokens") or 0),
+                    "tokens_output": tok_out,
+                    "tokens_reasoning": tok_reason,
+                    "tokens_cache_read": int(r.get("cache_read_tokens") or 0),
+                    "tokens_cache_write": int(r.get("cache_write_tokens") or 0),
+                    "tokens_total": int(r.get("input_tokens") or 0) + generated,
+                    "cost": round(float(cost or 0.0), 6),
+                    "message_count": int(r.get("message_count") or 0),
+                    "tps": tps,
+                    "peak_tps": tps,
+                    "has_tool_calls": bool(r.get("tool_call_count") or 0),
+                    "source_path": sanitize_path(str(db_path)),
+                })
+        except Exception:
+            continue
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    rows.sort(key=lambda x: x.get("time_created") or 0, reverse=True)
+    _HERMES_CACHE["at"] = now
+    _HERMES_CACHE["rows"] = rows
+    return rows
+
+
+def get_hermes_session_detail(session_id):
+    for db_path in hermes_state_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except Exception:
+            continue
+        try:
+            mcols = _table_columns(conn, "messages")
+            if not mcols:
+                continue
+            c = conn.cursor()
+            c.execute("SELECT 1 FROM sessions WHERE id = ? LIMIT 1", (session_id,))
+            if not c.fetchone():
+                continue
+
+            base = next((r for r in get_hermes_sessions() if r["id"] == session_id), None)
+            if not base:
+                continue
+
+            sel = [x for x in ("role", "content", "timestamp", "token_count", "tool_name",
+                               "finish_reason", "reasoning") if x in mcols]
+            where = "WHERE session_id = ?"
+            if "active" in mcols:
+                where += " AND active = 1"
+            c.execute(f"SELECT {', '.join(sel)} FROM messages {where} ORDER BY timestamp ASC", (session_id,))
+
+            messages = []
+            for rec in c.fetchall():
+                m = dict(zip(sel, rec))
+                ts = float(m.get("timestamp") or 0) * 1000
+                parts = []
+                if m.get("reasoning"):
+                    parts.append({"type": "reasoning", "content": str(m["reasoning"])[:4000]})
+                if m.get("tool_name"):
+                    parts.append({"type": "tool", "tool": m["tool_name"], "status": "completed",
+                                  "input": {}, "output": str(m.get("content") or "")[:2000]})
+                elif m.get("content"):
+                    parts.append({"type": "text", "content": str(m["content"])})
+
+                messages.append({
+                    "id": f"{session_id}:{len(messages)}",
+                    "role": m.get("role") or "assistant",
+                    "time_created": int(ts),
+                    "date_str": datetime.fromtimestamp(ts / 1000).strftime("%H:%M:%S") if ts else "",
+                    "duration_s": 0.0,
+                    "tokens_input": 0,
+                    "tokens_output": int(m.get("token_count") or 0),
+                    "tokens_reasoning": 0,
+                    "total_tokens": int(m.get("token_count") or 0),
+                    "tps": 0.0,
+                    "parts": parts,
+                })
+
+            detail = dict(base)
+            detail["messages"] = messages
+            detail["avg_tps"] = base.get("tps", 0.0)
+            return detail
+        except Exception:
+            continue
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return None
+
+
+# ============================================================
+# ADDITIONAL LOCAL AGENTS AND CHAT APPS
+#
+# Six more tools that keep their history on disk. Each reader is deliberately
+# defensive: these formats belong to other projects and change without notice,
+# so a reader that cannot make sense of a file returns None and the source is
+# simply reported as empty rather than taking the sidebar down with it.
+# ============================================================
+
+def _session_record(**kw):
+    """Every source returns the same shape, so the rest of the app does not
+    care which tool a row came from."""
+    created = int(kw.get("time_created") or 0)
+    out_tok = int(kw.get("tokens_output") or 0)
+    reasoning = int(kw.get("tokens_reasoning") or 0)
+    duration = float(kw.get("duration_s") or 0.0)
+    generated = out_tok + reasoning
+    tps = round(generated / duration, 1) if duration > 0.5 and generated else 0.0
+    directory = kw.get("directory") or ""
+    return {
+        "id": kw["id"],
+        "harness": kw["harness"],
+        "title": (kw.get("title") or kw["harness"] + " session")[:120],
+        "directory": sanitize_path(directory),
+        "folder": Path(directory).name if directory else kw["harness"],
+        "model": kw.get("model") or "unknown",
+        "provider": kw.get("provider") or kw["harness"],
+        "branch": kw.get("branch"),
+        "version": kw.get("version"),
+        "date_str": datetime.fromtimestamp(created / 1000).strftime("%Y-%m-%d %H:%M") if created else "Recent",
+        "time_created": created,
+        "duration_s": round(duration, 1),
+        "tokens_input": int(kw.get("tokens_input") or 0),
+        "tokens_output": out_tok,
+        "tokens_reasoning": reasoning,
+        "tokens_cache_read": int(kw.get("tokens_cache_read") or 0),
+        "tokens_cache_write": int(kw.get("tokens_cache_write") or 0),
+        "tokens_total": int(kw.get("tokens_input") or 0) + generated,
+        "cost": 0.0,
+        "message_count": int(kw.get("message_count") or 0),
+        "tps": tps,
+        "peak_tps": tps,
+        "has_tool_calls": bool(kw.get("has_tool_calls")),
+        "source_path": sanitize_path(str(kw.get("source_path") or "")),
+    }
+
+
+def _read_json(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
         return None
+
+
+def _read_jsonl(path, limit=20000):
+    rows = []
+    try:
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines()[:limit]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return rows
+
+
+def _ms(value):
+    """These tools variously store seconds, milliseconds or ISO strings."""
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        v = float(value)
+        if v > 1e12:
+            return int(v)          # already milliseconds
+        if v > 1e9:
+            return int(v * 1000)   # seconds
+        return int(v)
+    if isinstance(value, str):
+        try:
+            return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+        except Exception:
+            return 0
+    return 0
+
+
+# ------------------------------------------------------------
+# Cline and Roo Code
+# Both are VS Code extensions sharing a task layout:
+#   tasks/<taskId>/api_conversation_history.json  - the model exchange
+#   tasks/<taskId>/ui_messages.json               - what the panel showed,
+#                                                   including token counts
+# ------------------------------------------------------------
+
+def _cline_like_roots(kind):
+    h = _home()
+    app = h / "Library" / "Application Support"
+    ext = "saoudrizwan.claude-dev" if kind == "cline" else "rooveterinaryinc.roo-cline"
+    roots = [
+        app / "Code" / "User" / "globalStorage" / ext / "tasks",
+        app / "Code - Insiders" / "User" / "globalStorage" / ext / "tasks",
+        app / "Cursor" / "User" / "globalStorage" / ext / "tasks",
+        app / "VSCodium" / "User" / "globalStorage" / ext / "tasks",
+        h / ".vscode-server" / "data" / "User" / "globalStorage" / ext / "tasks",
+    ]
+    local = os.environ.get("APPDATA")
+    if local:
+        roots.append(Path(local) / "Code" / "User" / "globalStorage" / ext / "tasks")
+    xdg_cfg = h / ".config"
+    roots.append(xdg_cfg / "Code" / "User" / "globalStorage" / ext / "tasks")
+    return [r for r in roots if r.is_dir()]
+
+
+def parse_cline_task(task_dir, harness):
+    api = _read_json(task_dir / "api_conversation_history.json")
+    ui = _read_json(task_dir / "ui_messages.json")
+    if not isinstance(api, list) and not isinstance(ui, list):
+        return None
+
+    tok_in = tok_out = tok_cache_read = tok_cache_write = 0
+    first_ts = last_ts = None
+    title = None
+    model = None
+    has_tools = False
+    messages = 0
+
+    for ev in (ui if isinstance(ui, list) else []):
+        if not isinstance(ev, dict):
+            continue
+        ts = _ms(ev.get("ts"))
+        if ts:
+            first_ts = ts if first_ts is None else min(first_ts, ts)
+            last_ts = ts if last_ts is None else max(last_ts, ts)
+        say = ev.get("say")
+        if say == "api_req_started":
+            # The panel stores this payload as a JSON string.
+            info = ev.get("text")
+            if isinstance(info, str):
+                try:
+                    info = json.loads(info)
+                except Exception:
+                    info = None
+            if isinstance(info, dict):
+                tok_in += int(info.get("tokensIn") or 0)
+                tok_out += int(info.get("tokensOut") or 0)
+                tok_cache_read += int(info.get("cacheReads") or 0)
+                tok_cache_write += int(info.get("cacheWrites") or 0)
+                model = info.get("model") or model
+        elif say == "text" and title is None and isinstance(ev.get("text"), str):
+            t = ev["text"].strip()
+            if t and not t.startswith("<"):
+                title = t.splitlines()[0]
+        if ev.get("type") in ("say", "ask"):
+            messages += 1
+
+    for msg in (api if isinstance(api, list) else []):
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "tool_use":
+                        has_tools = True
+                    if title is None and part.get("type") == "text" and msg.get("role") == "user":
+                        t = (part.get("text") or "").strip()
+                        if t and not t.startswith("<"):
+                            title = t.splitlines()[0]
+
+    if not messages and not tok_out:
+        return None
+
+    meta = _read_json(task_dir / "task_metadata.json") or {}
+    cwd = None
+    if isinstance(meta, dict):
+        cwd = meta.get("cwd") or meta.get("workspace") or meta.get("workspacePath")
+        files = meta.get("files_in_context") or meta.get("filesInContext")
+        if isinstance(files, list) and files:
+            has_tools = True
 
     if not first_ts:
         try:
-            first_ts = int(path.stat().st_mtime * 1000)
+            first_ts = int(task_dir.stat().st_mtime * 1000)
         except Exception:
             first_ts = 0
         last_ts = first_ts
 
-    duration_s = max(0.0, ((last_ts or 0) - (first_ts or 0)) / 1000.0)
-    generated = tok_out + tok_reasoning
-    tps = round(generated / duration_s, 1) if (duration_s > 0.5 and generated) else 0.0
-    directory = cwd or str(path.parent)
-
-    return {
-        "id": session_id,
-        "harness": "claudecode",
-        "title": ai_title or title or "Claude Code session",
-        "directory": sanitize_path(directory),
-        "folder": Path(directory).name if directory else "claude",
-        "model": model or "unknown",
-        "provider": "anthropic",
-        "branch": branch,
-        "version": version,
-        "date_str": datetime.fromtimestamp(first_ts / 1000).strftime("%Y-%m-%d %H:%M") if first_ts else "Recent",
-        "time_created": int(first_ts or 0),
-        "duration_s": round(duration_s, 1),
-        "tokens_input": tok_in,
-        "tokens_output": tok_out,
-        "tokens_reasoning": tok_reasoning,
-        "tokens_cache_read": tok_cache_read,
-        "tokens_cache_write": tok_cache_write,
-        "tokens_total": tok_in + tok_out + tok_reasoning,
-        "cost": 0.0,
-        "message_count": user_turns + assistant_turns,
-        "tps": tps,
-        "peak_tps": tps,
-        "has_tool_calls": has_tools,
-        "source_path": sanitize_path(str(path)),
-    }
+    return _session_record(
+        id=f"{harness}_{task_dir.name}",
+        harness=harness,
+        title=title or f"{'Cline' if harness == 'cline' else 'Roo Code'} task",
+        directory=cwd or "",
+        model=model or "local",
+        provider=harness,
+        time_created=first_ts,
+        duration_s=max(0.0, ((last_ts or 0) - (first_ts or 0)) / 1000.0),
+        tokens_input=tok_in,
+        tokens_output=tok_out,
+        tokens_cache_read=tok_cache_read,
+        tokens_cache_write=tok_cache_write,
+        message_count=messages,
+        has_tool_calls=has_tools,
+        source_path=task_dir,
+    )
 
 
-_CC_CACHE = {"at": 0.0, "rows": None}
-
-
-def get_claude_code_sessions():
-    # Parsing ~400 transcripts costs real time, so the result is cached for the
-    # length of a page interaction rather than re-read per request.
-    now = time.time()
-    if _CC_CACHE["rows"] is not None and (now - _CC_CACHE["at"]) < 60:
-        return _CC_CACHE["rows"]
+def _get_cline_like_sessions(kind, limit=400):
     rows = []
-    for f in scan_claude_code_files():
+    for root in _cline_like_roots(kind):
         try:
-            rec = parse_claude_code_session(f)
+            dirs = sorted(root.iterdir(), key=lambda d: d.stat().st_mtime if d.exists() else 0, reverse=True)
         except Exception:
-            rec = None
-        if rec:
-            rows.append(rec)
-    rows.sort(key=lambda r: r.get("time_created") or 0, reverse=True)
-    _CC_CACHE["at"] = now
-    _CC_CACHE["rows"] = rows
+            continue
+        for task_dir in dirs[:limit]:
+            if not task_dir.is_dir():
+                continue
+            try:
+                rec = parse_cline_task(task_dir, kind)
+            except Exception:
+                rec = None
+            if rec:
+                rows.append(rec)
+    return rows
+
+
+_CLINE_CACHE = {"at": 0.0, "rows": None}
+_ROO_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_cline_sessions():
+    now = time.time()
+    if _CLINE_CACHE["rows"] is not None and (now - _CLINE_CACHE["at"]) < 60:
+        return _CLINE_CACHE["rows"]
+    rows = _get_cline_like_sessions("cline")
+    _CLINE_CACHE.update({"at": now, "rows": rows})
+    return rows
+
+
+def get_roo_sessions():
+    now = time.time()
+    if _ROO_CACHE["rows"] is not None and (now - _ROO_CACHE["at"]) < 60:
+        return _ROO_CACHE["rows"]
+    rows = _get_cline_like_sessions("roo")
+    _ROO_CACHE.update({"at": now, "rows": rows})
+    return rows
+
+
+# ------------------------------------------------------------
+# Zed
+# The built-in agent keeps threads in a SQLite database. Column names have
+# moved around between releases, so columns are discovered rather than assumed
+# and the JSON blob is only read if it is actually there.
+# ------------------------------------------------------------
+
+def zed_thread_dbs():
+    h = _home()
+    candidates = [
+        h / "Library" / "Application Support" / "Zed" / "threads" / "threads.db",
+        h / ".local" / "share" / "zed" / "threads" / "threads.db",
+        h / ".config" / "zed" / "threads" / "threads.db",
+    ]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "Zed" / "threads" / "threads.db")
+    return [c for c in candidates if c.exists()]
+
+
+def get_zed_sessions(limit=400):
+    rows = []
+    for db_path in zed_thread_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except Exception:
+            continue
+        try:
+            cols = _table_columns(conn, "threads")
+            if not cols:
+                continue
+            id_col = "id" if "id" in cols else next(iter(cols), None)
+            wanted = [c for c in ("id", "summary", "title", "updated_at", "created_at", "data_type", "data") if c in cols]
+            if id_col and id_col not in wanted:
+                wanted.insert(0, id_col)
+            order = "updated_at" if "updated_at" in cols else id_col
+            c = conn.cursor()
+            c.execute(f"SELECT {', '.join(wanted)} FROM threads ORDER BY {order} DESC LIMIT ?", (limit,))
+            for record in c.fetchall():
+                r = dict(zip(wanted, record))
+                created = _ms(r.get("updated_at") or r.get("created_at"))
+                title = r.get("summary") or r.get("title")
+                msg_count = 0
+                model = None
+                blob = r.get("data")
+                if isinstance(blob, (bytes, str)):
+                    try:
+                        text = blob.decode("utf-8", "ignore") if isinstance(blob, bytes) else blob
+                        payload = json.loads(text)
+                        msgs = payload.get("messages") if isinstance(payload, dict) else None
+                        if isinstance(msgs, list):
+                            msg_count = len(msgs)
+                        if isinstance(payload, dict):
+                            model = (payload.get("model") or {}).get("model") if isinstance(payload.get("model"), dict) else payload.get("model")
+                            title = title or payload.get("summary")
+                    except Exception:
+                        pass
+                rows.append(_session_record(
+                    id=f"zed_{r.get(id_col)}",
+                    harness="zed",
+                    title=title or "Zed thread",
+                    model=model or "local",
+                    provider="zed",
+                    time_created=created,
+                    message_count=msg_count,
+                    source_path=db_path,
+                ))
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return rows
+
+
+# ------------------------------------------------------------
+# Goose
+# Up to 1.10 each session was a .jsonl file; newer builds import those into
+# sessions.db. Both are read, and the database wins when a session appears in
+# both so upgrading does not double-count.
+# ------------------------------------------------------------
+
+def _goose_dirs():
+    h = _home()
+    xdg = Path(os.environ.get("XDG_DATA_HOME", h / ".local" / "share"))
+    out = [xdg / "goose", h / ".local" / "share" / "goose"]
+    local = os.environ.get("APPDATA")
+    if local:
+        out.append(Path(local) / "goose")
+    # XDG_DATA_HOME often points at ~/.local/share, so the same directory can
+    # appear twice and every session would be counted twice.
+    seen, uniq = set(), []
+    for d in out:
+        try:
+            key = d.resolve()
+        except Exception:
+            key = d
+        if d.is_dir() and key not in seen:
+            seen.add(key)
+            uniq.append(d)
+    return uniq
+
+
+def get_goose_sessions(limit=400):
+    rows = []
+    seen = set()
+
+    for base in _goose_dirs():
+        db = base / "sessions.db"
+        if db.exists():
+            try:
+                conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            except Exception:
+                conn = None
+            if conn:
+                try:
+                    for table in ("sessions", "session"):
+                        cols = _table_columns(conn, table)
+                        if not cols or "id" not in cols:
+                            continue
+                        wanted = [c for c in ("id", "name", "description", "working_dir", "cwd",
+                                              "created_at", "updated_at", "message_count",
+                                              "total_tokens", "input_tokens", "output_tokens") if c in cols]
+                        order = "updated_at" if "updated_at" in cols else "id"
+                        c = conn.cursor()
+                        c.execute(f"SELECT {', '.join(wanted)} FROM {table} ORDER BY {order} DESC LIMIT ?", (limit,))
+                        for record in c.fetchall():
+                            r = dict(zip(wanted, record))
+                            sid = str(r.get("id"))
+                            seen.add(sid)
+                            rows.append(_session_record(
+                                id=f"goose_{sid}",
+                                harness="goose",
+                                title=r.get("description") or r.get("name") or "Goose session",
+                                directory=r.get("working_dir") or r.get("cwd") or "",
+                                model="local",
+                                provider="goose",
+                                time_created=_ms(r.get("created_at") or r.get("updated_at")),
+                                duration_s=max(0.0, (_ms(r.get("updated_at")) - _ms(r.get("created_at"))) / 1000.0),
+                                tokens_input=r.get("input_tokens") or 0,
+                                tokens_output=r.get("output_tokens") or 0,
+                                message_count=r.get("message_count") or 0,
+                                source_path=db,
+                            ))
+                        break
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        sess_dir = base / "sessions"
+        if sess_dir.is_dir():
+            try:
+                files = sorted(sess_dir.glob("*.jsonl"),
+                               key=lambda f: f.stat().st_mtime if f.exists() else 0, reverse=True)
+            except Exception:
+                files = []
+            for f in files[:limit]:
+                if f.stem in seen:
+                    continue
+                events = _read_jsonl(f)
+                if not events:
+                    continue
+                first_ts = last_ts = None
+                msgs = 0
+                cwd = None
+                desc = None
+                tok_in = tok_out = 0
+                has_tools = False
+                for ev in events:
+                    if not isinstance(ev, dict):
+                        continue
+                    if "working_dir" in ev or "description" in ev:
+                        cwd = ev.get("working_dir") or cwd
+                        desc = ev.get("description") or desc
+                    ts = _ms(ev.get("created") or ev.get("timestamp") or ev.get("created_at"))
+                    if ts:
+                        first_ts = ts if first_ts is None else min(first_ts, ts)
+                        last_ts = ts if last_ts is None else max(last_ts, ts)
+                    role = ev.get("role")
+                    if role in ("user", "assistant"):
+                        msgs += 1
+                    content = ev.get("content")
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") in ("toolRequest", "toolResponse", "tool_use"):
+                                has_tools = True
+                    usage = ev.get("usage") or (ev.get("metadata") or {}).get("usage") if isinstance(ev.get("metadata"), dict) else ev.get("usage")
+                    if isinstance(usage, dict):
+                        tok_in += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+                        tok_out += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+                if not msgs:
+                    continue
+                if not first_ts:
+                    first_ts = int(f.stat().st_mtime * 1000)
+                    last_ts = first_ts
+                rows.append(_session_record(
+                    id=f"goose_{f.stem}",
+                    harness="goose",
+                    title=desc or "Goose session",
+                    directory=cwd or "",
+                    model="local",
+                    provider="goose",
+                    time_created=first_ts,
+                    duration_s=max(0.0, ((last_ts or 0) - (first_ts or 0)) / 1000.0),
+                    tokens_input=tok_in,
+                    tokens_output=tok_out,
+                    message_count=msgs,
+                    has_tool_calls=has_tools,
+                    source_path=f,
+                ))
+    return rows
+
+
+# ------------------------------------------------------------
+# LM Studio
+# Chats are single JSON files. LM Studio explicitly does not promise this
+# shape, so every field is probed in a few likely places and anything
+# unrecognised is skipped rather than guessed at.
+# ------------------------------------------------------------
+
+def _lmstudio_dirs():
+    h = _home()
+    out = [h / ".lmstudio" / "conversations", h / ".cache" / "lm-studio" / "conversations"]
+    local = os.environ.get("APPDATA")
+    if local:
+        out.append(Path(local) / "LM Studio" / "conversations")
+    return [d for d in out if d.is_dir()]
+
+
+def get_lmstudio_sessions(limit=400):
+    rows = []
+    for base in _lmstudio_dirs():
+        try:
+            files = sorted(base.rglob("*.json"),
+                           key=lambda f: f.stat().st_mtime if f.exists() else 0, reverse=True)
+        except Exception:
+            continue
+        for f in files[:limit]:
+            payload = _read_json(f)
+            if not isinstance(payload, dict):
+                continue
+            msgs = payload.get("messages")
+            if not isinstance(msgs, list):
+                continue
+            model = payload.get("modelIdentifier") or payload.get("model") or payload.get("lastUsedModel")
+            if isinstance(model, dict):
+                model = model.get("identifier") or model.get("path") or model.get("name")
+            tok_out = 0
+            for m in msgs:
+                if not isinstance(m, dict):
+                    continue
+                stats = m.get("genInfo") or m.get("stats") or {}
+                if isinstance(stats, dict):
+                    tok_out += int(stats.get("predictedTokensCount") or stats.get("tokenCount") or 0)
+            created = _ms(payload.get("createdAt") or payload.get("created_at"))
+            if not created:
+                try:
+                    created = int(f.stat().st_mtime * 1000)
+                except Exception:
+                    created = 0
+            rows.append(_session_record(
+                id=f"lmstudio_{f.stem}",
+                harness="lmstudio",
+                title=payload.get("name") or payload.get("title") or "LM Studio chat",
+                model=model or "local",
+                provider="lmstudio",
+                time_created=created,
+                tokens_output=tok_out,
+                message_count=len(msgs),
+                source_path=f,
+            ))
+    return rows
+
+
+# ------------------------------------------------------------
+# Jan
+# One folder per thread: thread.json holds the metadata and the chosen model,
+# messages.jsonl holds the exchange.
+# ------------------------------------------------------------
+
+def _jan_dirs():
+    h = _home()
+    out = [h / "jan" / "threads",
+           h / "Library" / "Application Support" / "jan" / "threads",
+           h / ".jan" / "threads"]
+    local = os.environ.get("APPDATA")
+    if local:
+        out.append(Path(local) / "jan" / "threads")
+    return [d for d in out if d.is_dir()]
+
+
+def get_jan_sessions(limit=400):
+    rows = []
+    for base in _jan_dirs():
+        try:
+            dirs = sorted([d for d in base.iterdir() if d.is_dir()],
+                          key=lambda d: d.stat().st_mtime, reverse=True)
+        except Exception:
+            continue
+        for d in dirs[:limit]:
+            meta = _read_json(d / "thread.json")
+            msgs = _read_jsonl(d / "messages.jsonl")
+            if not isinstance(meta, dict) and not msgs:
+                continue
+            meta = meta if isinstance(meta, dict) else {}
+            model = meta.get("model")
+            if isinstance(model, dict):
+                model = model.get("id") or model.get("name")
+            if not model:
+                assistants = meta.get("assistants")
+                if isinstance(assistants, list) and assistants:
+                    a = assistants[0]
+                    if isinstance(a, dict):
+                        m = a.get("model")
+                        model = m.get("id") if isinstance(m, dict) else m
+            created = _ms(meta.get("created") or meta.get("created_at") or meta.get("updated"))
+            first_ts = last_ts = None
+            for m in msgs:
+                ts = _ms(m.get("created_at") or m.get("created") or m.get("createdAt"))
+                if ts:
+                    first_ts = ts if first_ts is None else min(first_ts, ts)
+                    last_ts = ts if last_ts is None else max(last_ts, ts)
+            if not created:
+                created = first_ts or 0
+            if not created:
+                try:
+                    created = int(d.stat().st_mtime * 1000)
+                except Exception:
+                    created = 0
+            rows.append(_session_record(
+                id=f"jan_{d.name}",
+                harness="jan",
+                title=(meta.get("title") or meta.get("name") or "Jan thread"),
+                model=model or "local",
+                provider="jan",
+                time_created=created,
+                duration_s=max(0.0, ((last_ts or 0) - (first_ts or 0)) / 1000.0) if first_ts and last_ts else 0.0,
+                message_count=len(msgs),
+                source_path=d,
+            ))
     return rows
 
 
@@ -2245,57 +2997,48 @@ def source_catalog():
     xdg = Path(os.environ.get("XDG_DATA_HOME", h / ".local" / "share"))
     return [
         # --- Coding agents (readable) ---
-        {"id": "opencode",  "name": "OpenCode",    "icon": "\u26A1", "kind": "agent", "readable": True,
+        {"id": "opencode",  "name": "OpenCode",    "icon": "opencode", "kind": "agent", "readable": True,
          "paths": [CONFIG["opencode_db"]]},
-        {"id": "claudecode", "name": "Claude Code", "icon": "\u2733\uFE0F", "kind": "agent", "readable": True,
-         "paths": [h / ".claude" / "projects"], "glob": "*/*.jsonl"},
-        {"id": "openclaw",  "name": "OpenClaw",    "icon": "\U0001F43E", "kind": "agent", "readable": True,
+        {"id": "openclaw",  "name": "OpenClaw",    "icon": "paw", "kind": "agent", "readable": True,
          "paths": [hh / "agents" for hh in CONFIG.get("openclaw_homes", [])] or [h / ".openclaw" / "agents"],
          "glob": "*/sessions/*.jsonl"},
-        {"id": "aider",     "name": "Aider",       "icon": "\U0001F916", "kind": "agent", "readable": True,
+        {"id": "aider",     "name": "Aider",       "icon": "squareTerminal", "kind": "agent", "readable": True,
          "paths": [h / ".aider.chat.history.md", Path.cwd() / ".aider.chat.history.md"]},
-        {"id": "continue",  "name": "Continue",    "icon": "\U0001F680", "kind": "agent", "readable": True,
+        {"id": "continue",  "name": "Continue",    "icon": "arrows", "kind": "agent", "readable": True,
          "paths": [h / ".continue" / "sessions"], "glob": "*.json"},
+        {"id": "hermes",    "name": "Hermes Agent", "icon": "hermes", "kind": "agent", "readable": True,
+         "paths": [hh / "state.db" for hh in resolve_hermes_homes()]
+                  or [h / ".hermes" / "state.db", h / ".hermes"]},
 
-        # --- Coding agents (detected, parser not implemented yet) ---
-        {"id": "codex",     "name": "Codex CLI",   "icon": "\U0001F9E0", "kind": "agent", "readable": False,
-         "paths": [h / ".codex" / "sessions", h / ".codex"]},
-        {"id": "gemini",    "name": "Gemini CLI",  "icon": "\U0001F48E", "kind": "agent", "readable": False,
-         "paths": [h / ".gemini" / "tmp", h / ".gemini"]},
-        {"id": "goose",     "name": "Goose",       "icon": "\U0001F9A2", "kind": "agent", "readable": False,
+        # --- Coding agents detected but not parsed yet ---
+        {"id": "goose",     "name": "Goose",       "icon": "bird", "kind": "agent", "readable": True,
          "paths": [xdg / "goose" / "sessions"], "glob": "*.jsonl"},
-        {"id": "crush",     "name": "Crush",       "icon": "\U0001F4A5", "kind": "agent", "readable": False,
+        {"id": "crush",     "name": "Crush",       "icon": "shapes", "kind": "agent", "readable": False,
          "paths": [xdg / "crush", h / ".crush"]},
-        {"id": "cline",     "name": "Cline",       "icon": "\U0001F9BE", "kind": "agent", "readable": False,
+        {"id": "cline",     "name": "Cline",       "icon": "cline", "kind": "agent", "readable": True,
          "paths": [app / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "tasks",
                    h / ".vscode" / "globalStorage" / "saoudrizwan.claude-dev"]},
-        {"id": "roo",       "name": "Roo Code",    "icon": "\U0001F998", "kind": "agent", "readable": False,
+        {"id": "roo",       "name": "Roo Code",    "icon": "rabbit", "kind": "agent", "readable": True,
          "paths": [app / "Code" / "User" / "globalStorage" / "rooveterinaryinc.roo-cline" / "tasks"]},
-        {"id": "cursor",    "name": "Cursor",      "icon": "\U0001F5B1\uFE0F", "kind": "agent", "readable": False,
-         "paths": [app / "Cursor" / "User" / "globalStorage"]},
-        {"id": "windsurf",  "name": "Windsurf",    "icon": "\U0001F30A", "kind": "agent", "readable": False,
-         "paths": [h / ".codeium" / "windsurf", app / "Windsurf"]},
-        {"id": "zed",       "name": "Zed",         "icon": "\u26A1", "kind": "agent", "readable": False,
+        {"id": "zed",       "name": "Zed",         "icon": "zed", "kind": "agent", "readable": True,
          "paths": [app / "Zed" / "conversations", app / "Zed" / "threads"]},
-        {"id": "copilot",   "name": "Copilot Chat", "icon": "\U0001F9E9", "kind": "agent", "readable": False,
-         "paths": [app / "Code" / "User" / "globalStorage" / "github.copilot-chat"]},
 
         # --- Desktop chat apps ---
-        {"id": "lmstudio_chat", "name": "LM Studio chats", "icon": "\U0001F5A5\uFE0F", "kind": "chat", "readable": False,
+        {"id": "lmstudio_chat", "name": "LM Studio chats", "icon": "lmstudio", "kind": "chat", "readable": True,
          "paths": [h / ".lmstudio" / "conversations", h / ".cache" / "lm-studio" / "conversations"]},
-        {"id": "openwebui", "name": "Open WebUI",  "icon": "\U0001F310", "kind": "chat", "readable": False,
+        {"id": "openwebui", "name": "Open WebUI",  "icon": "globe", "kind": "chat", "readable": False,
          "paths": [h / ".open-webui" / "webui.db", h / "open-webui" / "backend" / "data" / "webui.db"]},
-        {"id": "librechat", "name": "LibreChat",   "icon": "\U0001F4AC", "kind": "chat", "readable": False,
+        {"id": "librechat", "name": "LibreChat",   "icon": "messagesSquare", "kind": "chat", "readable": False,
          "paths": [h / "LibreChat", app / "LibreChat"]},
-        {"id": "jan",       "name": "Jan",         "icon": "\U0001F31F", "kind": "chat", "readable": False,
+        {"id": "jan",       "name": "Jan",         "icon": "atom", "kind": "chat", "readable": True,
          "paths": [h / "jan" / "threads", app / "jan" / "threads"]},
-        {"id": "anythingllm", "name": "AnythingLLM", "icon": "\U0001F4DA", "kind": "chat", "readable": False,
+        {"id": "anythingllm", "name": "AnythingLLM", "icon": "libraryBig", "kind": "chat", "readable": False,
          "paths": [app / "anythingllm-desktop"]},
-        {"id": "msty",      "name": "Msty",        "icon": "\U0001F9ED", "kind": "chat", "readable": False,
+        {"id": "msty",      "name": "Msty",        "icon": "hexagon", "kind": "chat", "readable": False,
          "paths": [app / "Msty"]},
-        {"id": "chatbox",   "name": "Chatbox",     "icon": "\U0001F4E6", "kind": "chat", "readable": False,
+        {"id": "chatbox",   "name": "Chatbox",     "icon": "box", "kind": "chat", "readable": False,
          "paths": [app / "xyz.chatboxapp.app"]},
-        {"id": "gpt4all",   "name": "GPT4All",     "icon": "\U0001F5A8\uFE0F", "kind": "chat", "readable": False,
+        {"id": "gpt4all",   "name": "GPT4All",     "icon": "blocks", "kind": "chat", "readable": False,
          "paths": [app / "nomic.ai" / "GPT4All", h / ".config" / "nomic.ai" / "GPT4All"]},
     ]
 
@@ -2306,20 +3049,24 @@ def server_catalog():
     endpoint that identifies it rather than trusting the port alone.
     """
     return [
-        {"id": "mlx",       "name": "MLX LM",        "icon": "\U0001F7E2", "port": 8080,  "probe": "/metrics", "kind": "mlx", "installs": ["~/.cache/huggingface/hub", "/opt/homebrew/bin/mlx_lm.server"]},
-        {"id": "ollama",    "name": "Ollama",        "icon": "\U0001F999", "port": 11434, "probe": "/api/tags", "kind": "ollama", "installs": ["/Applications/Ollama.app", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "~/.ollama"]},
-        {"id": "llamacpp",  "name": "llama.cpp",     "icon": "\U0001F999", "port": 8077,  "probe": "/props", "kind": "llamacpp", "installs": ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]},
-        {"id": "lmstudio",  "name": "LM Studio",     "icon": "\U0001F5A5\uFE0F", "port": 1234,  "probe": "/v1/models", "installs": ["/Applications/LM Studio.app", "~/.lmstudio"]},
-        {"id": "vllm",      "name": "vLLM",          "icon": "\U0001F3AF", "port": 8000,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/vllm"]},
-        {"id": "jan_server", "name": "Jan server",   "icon": "\U0001F31F", "port": 1337,  "probe": "/v1/models", "installs": ["/Applications/Jan.app", "~/jan"]},
-        {"id": "koboldcpp", "name": "KoboldCpp",     "icon": "\U0001F4D8", "port": 5001,  "probe": "/api/v1/model", "kind": "kobold", "installs": ["~/koboldcpp", "/opt/homebrew/bin/koboldcpp"]},
-        {"id": "textgenwebui", "name": "Text-gen WebUI", "icon": "\U0001F5A5\uFE0F", "port": 5000, "probe": "/v1/models", "installs": ["~/text-generation-webui"]},
-        {"id": "localai",   "name": "LocalAI",       "icon": "\U0001F916", "port": 8081,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/local-ai"]},
-        {"id": "sglang",    "name": "SGLang",        "icon": "\u26A1", "port": 30000, "probe": "/v1/models", "installs": ["/opt/homebrew/bin/sglang"]},
-        {"id": "cortex",    "name": "Cortex",        "icon": "\U0001F9E0", "port": 39281, "probe": "/v1/models", "installs": ["/Applications/Cortex.app", "~/cortexcpp"]},
-        {"id": "tabbyapi",  "name": "TabbyAPI",      "icon": "\U0001F408", "port": 5555,  "probe": "/v1/models", "installs": ["~/tabbyAPI"]},
-        {"id": "openwebui_srv", "name": "Open WebUI", "icon": "\U0001F310", "port": 3000, "probe": "/health", "kind": "health", "installs": ["~/.open-webui"]},
-        {"id": "openclaw_gw", "name": "OpenClaw gateway", "icon": "\U0001F43E", "port": None, "probe": "/health", "kind": "health", "allow_tcp": True, "installs": ["/opt/homebrew/bin/openclaw", "~/.openclaw"]},
+        {"id": "mlx",       "name": "MLX LM",        "icon": "apple", "port": 8080,  "probe": "/metrics", "kind": "mlx", "installs": ["~/.cache/huggingface/hub", "/opt/homebrew/bin/mlx_lm.server"]},
+        {"id": "ollama",    "name": "Ollama",        "icon": "ollama", "port": 11434, "probe": "/api/tags", "kind": "ollama", "installs": ["/Applications/Ollama.app", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "~/.ollama"]},
+        {"id": "llamacpp",  "name": "llama.cpp",     "icon": "feather", "port": 8077,  "probe": "/props", "kind": "llamacpp", "installs": ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]},
+        {"id": "lmstudio",  "name": "LM Studio",     "icon": "lmstudio", "port": 1234,  "probe": "/v1/models", "installs": ["/Applications/LM Studio.app", "~/.lmstudio"]},
+        {"id": "vllm",      "name": "vLLM",          "icon": "vllm", "port": 8000,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/vllm"]},
+        {"id": "jan_server", "name": "Jan server",   "icon": "atom", "port": 1337,  "probe": "/v1/models", "installs": ["/Applications/Jan.app", "~/jan"]},
+        {"id": "koboldcpp", "name": "KoboldCpp",     "icon": "book", "port": 5001,  "probe": "/api/v1/model", "kind": "kobold", "installs": ["~/koboldcpp", "/opt/homebrew/bin/koboldcpp"]},
+        {"id": "textgenwebui", "name": "Text-gen WebUI", "icon": "panelsTopLeft", "port": 5000, "probe": "/v1/models", "installs": ["~/text-generation-webui"]},
+        {"id": "localai",   "name": "LocalAI",       "icon": "server", "port": 8081,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/local-ai"]},
+        {"id": "sglang",    "name": "SGLang",        "icon": "zap", "port": 30000, "probe": "/v1/models", "installs": ["/opt/homebrew/bin/sglang"]},
+        {"id": "cortex",    "name": "Cortex",        "icon": "brain", "port": 39281, "probe": "/v1/models", "installs": ["/Applications/Cortex.app", "~/cortexcpp"]},
+        {"id": "tabbyapi",  "name": "TabbyAPI",      "icon": "cat", "port": 5555,  "probe": "/v1/models", "installs": ["~/tabbyAPI"]},
+        {"id": "openwebui_srv", "name": "Open WebUI", "icon": "globe", "port": 3000, "probe": "/health", "kind": "health", "installs": ["~/.open-webui"]},
+        {"id": "hermes_gw", "name": "Hermes gateway", "icon": "hermes",
+         "port": int(os.environ.get("API_SERVER_PORT") or 8642), "probe": "/health",
+         "kind": "health", "allow_tcp": True,
+         "installs": ["~/.hermes", "/opt/homebrew/bin/hermes"]},
+        {"id": "openclaw_gw", "name": "OpenClaw gateway", "icon": "paw", "port": None, "probe": "/health", "kind": "health", "allow_tcp": True, "installs": ["/opt/homebrew/bin/openclaw", "~/.openclaw"]},
     ]
 
 
@@ -2444,6 +3191,10 @@ def get_session_detail(session_id):
     openclaw = get_openclaw_session_detail(session_id)
     if openclaw:
         return openclaw
+
+    hermes = get_hermes_session_detail(session_id)
+    if hermes:
+        return hermes
 
     conn = get_db_connection()
     if not conn:
@@ -2705,7 +3456,45 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
+    # A page on attacker.example can point its DNS at 127.0.0.1, at which point
+    # the browser treats it as same-origin and the CORS fix no longer helps.
+    # Only answer to the names this server is actually reachable under.
+    ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]", ""}
+
+    # The interface is built on inline event handlers, so script-src cannot be
+    # locked down without rewriting every onclick. The directive that earns its
+    # place here is connect-src: even if an injection does execute, it cannot
+    # post your transcripts anywhere off this machine. frame-ancestors has to
+    # come from a header, which is the other reason this is not a meta tag.
+    CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'none'"
+    )
+
+    def end_headers(self):
+        self.send_header("Content-Security-Policy", self.CSP)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        super().end_headers()
+
+    def _host_ok(self):
+        raw = (self.headers.get("Host") or "").strip()
+        host = raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+        if raw.startswith("["):
+            host = raw.split("]")[0] + "]"
+        return host in self.ALLOWED_HOSTS
+
     def do_GET(self):
+        if not self._host_ok():
+            self.send_error(403, "Invalid Host header")
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -2803,7 +3592,6 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
         response_bytes = json.dumps(data).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(response_bytes)))
         self.end_headers()
         self.wfile.write(response_bytes)
@@ -2816,17 +3604,48 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
 def run(port=PORT):
     server_address = ("127.0.0.1", port)
     httpd = HTTPServer(server_address, TelemetryHandler)
+    # Report every source that was actually found, rather than the two that
+    # happened to exist when this was first written.
+    found = []
+    for label, fetch in (
+        ("OpenCode", count_opencode_sessions),
+        ("OpenClaw", lambda: len(get_openclaw_sessions())),
+        ("Hermes", lambda: len(get_hermes_sessions())),
+        ("Cline", lambda: len(get_cline_sessions())),
+        ("Roo Code", lambda: len(get_roo_sessions())),
+        ("Zed", lambda: len(get_zed_sessions())),
+        ("Goose", lambda: len(get_goose_sessions())),
+        ("LM Studio", lambda: len(get_lmstudio_sessions())),
+        ("Jan", lambda: len(get_jan_sessions())),
+        ("Aider", lambda: len(scan_aider_history())),
+        ("Continue", lambda: len(scan_continue_sessions())),
+    ):
+        try:
+            n = fetch()
+        except Exception:
+            n = 0
+        if n:
+            found.append((label, n))
+
+    try:
+        live = check_live_status()
+        engines = sorted(k for k, v in live.items() if isinstance(v, dict) and v.get("online"))
+    except Exception:
+        engines = []
+
     print("\n=========================================================")
-    print("  ⚡ Token Telemetry & Model Observatory Running!")
-    print(f"  URL: http://127.0.0.1:{port}")
-    print(f"  OpenCode DB: {sanitize_path(str(CONFIG['opencode_db']))}")
-    if CONFIG["openclaw_db"]:
-        print(f"  OpenClaw DB: {sanitize_path(str(CONFIG['openclaw_db']))}")
-    for home in CONFIG["openclaw_homes"]:
-        print(f"  OpenClaw home: {sanitize_path(str(home))}")
-    oc_count = len(scan_openclaw_session_files())
-    if oc_count:
-        print(f"  OpenClaw transcripts: {oc_count}")
+    print("  Tach")
+    print(f"  http://127.0.0.1:{port}")
+    print()
+    if found:
+        width = max(len(name) for name, _ in found)
+        print("  Reading:")
+        for name, n in found:
+            print(f"    {name.ljust(width)}  {n} session{'' if n == 1 else 's'}")
+    else:
+        print("  No agent history found yet. Run a session and reload.")
+    if engines:
+        print(f"  Engines online: {', '.join(engines)}")
     print("=========================================================\n")
     try:
         httpd.serve_forever()
@@ -2835,7 +3654,7 @@ def run(port=PORT):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Token Telemetry & Model Observatory Server")
+    parser = argparse.ArgumentParser(description="Tach Server")
     parser.add_argument("port_pos", nargs="?", type=int, default=None, help="Port number (positional)")
     parser.add_argument("--port", type=int, default=None, help="Port number")
     parser.add_argument("--db", "--opencode-db", type=str, default=None, help="Path to opencode.db SQLite file")

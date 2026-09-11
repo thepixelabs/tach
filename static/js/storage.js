@@ -11,7 +11,7 @@
    without a DOM. No function here touches document or window.
    ============================================================ */
 
-const WORKSPACE_KEY = 'token_telemetry_workspace';
+const WORKSPACE_KEY = 'tach_workspace';
 const SCHEMA_VERSION = 1;
 
 // Legacy keys, read once by the migration and left in place for one release
@@ -43,7 +43,7 @@ function emptyWorkspace() {
   return {
     schemaVersion: SCHEMA_VERSION,
     rev: 1,
-    prefs: { theme: 'subtle', mode: 'dark', lastPage: 'observatory' },
+    prefs: { theme: 'subtle', mode: 'dark', lastPage: 'observatory', enginesCollapsed: [] },
     defaultDashboardId: 'default',
     activeDashboardId: 'default',
     dashboards: {},   // user dashboards only; built-ins are never copied in
@@ -121,7 +121,8 @@ function normalizeLayout(layout, registry, archetypeFor) {
 
 function normalizeWorkspace(ws, builtins, registry, archetypeFor) {
   const out = Object.assign(emptyWorkspace(), ws || {});
-  out.prefs = Object.assign({ theme: 'subtle', mode: 'dark', lastPage: 'observatory' }, out.prefs || {});
+  out.prefs = Object.assign({ theme: 'subtle', mode: 'dark', lastPage: 'observatory', enginesCollapsed: [] }, out.prefs || {});
+  if (!Array.isArray(out.prefs.enginesCollapsed)) out.prefs.enginesCollapsed = [];
   out.dashboards = out.dashboards || {};
   out.overrides = out.overrides || {};
 

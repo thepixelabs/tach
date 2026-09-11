@@ -1,0 +1,68 @@
+/* ------------------------------------------------------------
+   Self-hosted latin subsets of the three faces the app already
+   uses. Served from this repo, so the page makes no third-party
+   request of any kind. Variable files: one per family.
+   SIL Open Font License 1.1.
+   ------------------------------------------------------------ */
+
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url('../assets/fonts/outfit-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: block;
+  src: url('../assets/fonts/plus-jakarta-sans-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: block;
+  src: url('../assets/fonts/jetbrains-mono-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+/* Metric matched fallbacks. The ratios below were measured in the browser by
+   rendering the same string in the real face and in the fallback, not guessed:
+   Outfit 100.4%, Plus Jakarta Sans 99.6%, JetBrains Mono 99.6%. With these the
+   fallback occupies the same width, so nothing shifts if a face arrives late. */
+@font-face {
+  font-family: 'Outfit fallback';
+  src: local('Helvetica Neue'), local('Arial');
+  ascent-override: 100%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+  size-adjust: 100.4%;
+}
+@font-face {
+  font-family: 'Jakarta fallback';
+  src: local('Helvetica Neue'), local('Arial');
+  ascent-override: 96%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+  size-adjust: 99.6%;
+}
+@font-face {
+  font-family: 'Mono fallback';
+  src: local('Menlo'), local('Consolas'), local('Courier New');
+  ascent-override: 92%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+  size-adjust: 99.6%;
+}

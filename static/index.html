@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Token Telemetry & Model Observatory</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <title>Tach</title>
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/telemetry.css">
 </head>
 <body class="app-body">
@@ -16,10 +15,10 @@
     <!-- Left navigation. Page list is rendered from PAGE_REGISTRY. -->
     <aside class="sidebar" id="appSidebar">
       <div class="sidebar__brand">
-        <div class="brand-badge" aria-hidden="true">&#9889;</div>
+        <div class="brand-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 13.5h4l2.6-7.5 3.8 13 2.5-9 1.6 3.5H21.5"/></svg></div>
         <div class="brand-text">
-          <div class="brand-title">TOKEN TELEMETRY</div>
-          <div class="brand-sub mono">Model Observatory</div>
+          <div class="brand-title">TACH</div>
+          <div class="brand-sub mono">Local model telemetry</div>
         </div>
       </div>
 
@@ -49,11 +48,20 @@
         <nav class="navgroup navgroup--pinned" aria-label="Settings">
           <ul class="navgroup__list" id="navListFoot"></ul>
         </nav>
-        <div class="backend-pills-row" id="sidebarBackendStatus"></div>
-        <button class="mode-toggle" type="button" id="modeToggle" onclick="toggleMode()" aria-pressed="false">
-          <span class="mode-toggle__icon" aria-hidden="true">&#9789;</span>
-          <span id="modeToggleLabel">Dark mode</span>
-        </button>
+        <div class="mode-seg" role="radiogroup" aria-label="Appearance">
+          <button class="mode-seg__btn" type="button" role="radio" aria-checked="false"
+                  data-mode="light" onclick="applyMode('light')" title="Light">
+            <span data-ic="sun" aria-hidden="true"></span><span class="sr-only">Light</span>
+          </button>
+          <button class="mode-seg__btn" type="button" role="radio" aria-checked="true"
+                  data-mode="dark" onclick="applyMode('dark')" title="Dark">
+            <span data-ic="moon" aria-hidden="true"></span><span class="sr-only">Dark</span>
+          </button>
+          <button class="mode-seg__btn" type="button" role="radio" aria-checked="false"
+                  data-mode="system" onclick="applyMode('system')" title="Match system">
+            <span data-ic="monitor" aria-hidden="true"></span><span class="sr-only">System</span>
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -69,7 +77,7 @@
                   onclick="toggleDashMenu(event)">
             <span class="dash-switcher__name" id="dashSwitcherName">Default Overview</span>
             <span class="dash-switcher__badge" id="dashSwitcherBadge" hidden>Built-in</span>
-            <span class="dash-switcher__caret" aria-hidden="true">&#9662;</span>
+            <span class="dash-switcher__caret" data-ic="chevronDown" aria-hidden="true"></span>
           </button>
           <span class="dash-dirty" id="dashDirty" hidden title="This dashboard has unsaved changes"></span>
           <button class="btn btn--accent btn--sm dash-save" id="dashSave" type="button"
@@ -90,7 +98,7 @@
             <button class="timewindow-pill timeseg__custom" type="button" role="radio" aria-checked="false"
                     data-window="custom" aria-haspopup="dialog" aria-expanded="false"
                     onclick="toggleRangePopover(event)">
-              <span aria-hidden="true">&#128197;</span>
+              <span data-ic="calendar" aria-hidden="true"></span>
               <span id="customRangeLabel">Custom</span>
             </button>
           </div>
@@ -118,11 +126,11 @@
           <button class="btn btn--ghost btn--md" type="button" id="btnCustomizeLayout"
                   data-toolbar="editLayout" aria-pressed="false" onclick="toggleEditLayout()"
                   title="Move and resize panels">
-            <span aria-hidden="true">&#9998;</span><span id="customizeText">Edit dashboard</span>
+            <span data-ic="pencil" aria-hidden="true"></span><span id="customizeText">Edit dashboard</span>
           </button>
           <button class="btn btn--ghost btn--md" type="button" data-toolbar="export"
                   onclick="exportFilteredData()" title="Download the filtered dataset as JSON">
-            <span aria-hidden="true">&#128229;</span><span>Export</span>
+            <span data-ic="download" aria-hidden="true"></span><span>Export</span>
           </button>
         </div>
       </header>
@@ -165,7 +173,7 @@
                 <span class="preview-dot" style="background:#00F0FF;"></span>
                 <span class="preview-dot" style="background:#39FF14;"></span>
               </div>
-              <div class="theme-card-title">Cyber Neon (Original Glow)</div>
+              <div class="theme-card-title">Cyber Neon</div>
               <div class="theme-card-desc">Vibrant electric cyber aesthetic with neon pink, violet, acid green glows.</div>
             </button>
 
@@ -195,9 +203,9 @@
         <div class="settings-section">
           <div class="settings-section-label mono">APPEARANCE MODE</div>
           <div class="mode-button-group">
-            <button class="mode-btn active" id="btnModeDark" onclick="applyMode('dark')">🌙 Dark Mode</button>
-            <button class="mode-btn" id="btnModeLight" onclick="applyMode('light')">☀️ Light Mode</button>
-            <button class="mode-btn" id="btnModeSystem" onclick="applyMode('system')">💻 Match System</button>
+            <button class="mode-btn active" id="btnModeDark" onclick="applyMode('dark')"><span data-ic="moon"></span> Dark</button>
+            <button class="mode-btn" id="btnModeLight" onclick="applyMode('light')"><span data-ic="sun"></span> Light</button>
+            <button class="mode-btn" id="btnModeSystem" onclick="applyMode('system')"><span data-ic="monitor"></span> Match system</button>
           </div>
         </div>
 
@@ -232,18 +240,6 @@
               <span class="sys-lbl mono">OpenClaw transcripts</span>
               <span class="sys-val mono" id="sysOpenClawHomes">not detected</span>
             </div>
-            <div class="sys-info-row">
-              <span class="sys-lbl mono">MLX LM Server</span>
-              <span class="sys-val mono" id="sysMlxUrl">http://127.0.0.1:8080</span>
-            </div>
-            <div class="sys-info-row">
-              <span class="sys-lbl mono">Ollama Server</span>
-              <span class="sys-val mono" id="sysOllamaUrl">http://127.0.0.1:11434</span>
-            </div>
-            <div class="sys-info-row">
-              <span class="sys-lbl mono">OpenClaw Gateway</span>
-              <span class="sys-val mono" id="sysOpenClawGw">http://127.0.0.1:18789</span>
-            </div>
           </div>
         </div>
     </div>
@@ -267,7 +263,7 @@
             <span>Total: <strong id="drawerTotalTokens" style="color:var(--accent-secondary);">--</strong> tokens</span>
           </div>
         </div>
-        <button class="drawer-close" onclick="closeSessionDetail()" title="Close details">✕</button>
+        <button class="drawer-close" onclick="closeSessionDetail()" title="Close details" data-ic="close"></button>
       </div>
 
       <!-- Messages Timeline -->
@@ -282,24 +278,24 @@
 
   <!-- Panel Gallery Modal -->
   <div class="gallery-backdrop" id="galleryBackdrop" onclick="if(event.target===this) closePanelGallery()">
-    <div class="gallery-modal" role="dialog" aria-modal="true" aria-label="Panel Gallery — Add panels to your telemetry dashboard">
+    <div class="gallery-modal" role="dialog" aria-modal="true" aria-label="Panel Gallery. Add panels to your telemetry dashboard">
       <div class="gallery-accent-line"></div>
       
       <div class="gallery-header">
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          <span style="color:var(--accent-primary);font-size:1.3rem;">❖</span>
+          <span style="color:var(--accent-primary);" data-ic="diamond"></span>
           <div>
             <div style="font-size:1.05rem;font-weight:800;color:var(--text-main);">Panel Gallery</div>
             <div style="font-size:0.74rem;color:var(--text-sub);">Select telemetry widgets to add to your observatory dashboard</div>
           </div>
           <span class="badge badge-folder mono" id="galleryTotalCount">-- Available</span>
         </div>
-        <button class="panel-close-btn" onclick="closePanelGallery()" title="Close gallery (Esc)">✕</button>
+        <button class="panel-close-btn" onclick="closePanelGallery()" title="Close gallery (Esc)" data-ic="close"></button>
       </div>
 
       <div class="gallery-toolbar">
         <div class="gallery-search">
-          <span style="color:var(--text-muted);font-size:0.85rem;">🔍</span>
+          <span style="color:var(--text-muted);" data-ic="search"></span>
           <input type="text" id="gallerySearchInput" placeholder="Search widgets & telemetry panels..." oninput="filterGalleryCards()">
         </div>
         <div class="gallery-tabs" id="galleryTabs">
@@ -328,6 +324,7 @@
     </div>
   </div>
 
+  <script src="/js/icons.js"></script>
   <script src="/js/marked.min.js"></script>
   <script src="/js/markdown.js"></script>
   <!-- Load order is load-bearing: storage -> router -> app. Do not reorder. -->
