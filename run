@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Starts the server and opens the dashboard. The browser is opened here rather
+# than by server.py, so --no-browser is consumed by this script and never
+# forwarded on.
+set -euo pipefail
+
+OPEN_BROWSER=1
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --no-browser) OPEN_BROWSER=0 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+
+PORT="${ARGS[0]:-3344}"
+case "$PORT" in
+  ''|*[!0-9]*) PORT=3344 ;;
+esac
+
+echo "Tach on http://127.0.0.1:$PORT"
+
+if [[ "$OPEN_BROWSER" == "1" ]]; then
+  (
+    sleep 1
+    if command -v open >/dev/null 2>&1; then
+      open "http://127.0.0.1:$PORT"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "http://127.0.0.1:$PORT"
+    fi
+  ) &
+fi
+
+exec python3 "$(dirname "$0")/server.py" ${ARGS[@]+"${ARGS[@]}"}

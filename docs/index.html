@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tach: how fast are your local models really?</title>
+<meta name="description" content="A dashboard for coding agents running on local models. See how fast yours really goes, which of your models is quickest, and what is slowing everything down.">
+<meta property="og:title" content="Tach">
+<meta property="og:description" content="How fast is your coding agent, really?">
+<meta property="og:image" content="assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/favicon-512.png">
+<link rel="preload" href="assets/fonts/outfit-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/plus-jakarta-sans-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/jetbrains-mono-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/landing.css">
+<script>
+  /* Runs before paint so a saved choice never flashes the wrong theme. */
+  (function () {
+    try {
+      var t = localStorage.getItem('tt-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav__in">
+    <div class="nav__brand">
+      <a class="brand" href="#top">
+        <span class="brand__name">Tach</span>
+      </a>
+      <a class="nav__by" href="https://pixelabs.net">by <b>PixeLabs</b></a>
+    </div>
+    <div class="nav__links">
+      <div class="themes" role="group" aria-label="Colour theme">
+        <button class="themes__btn" type="button" data-theme-set="light" aria-pressed="false" title="Light" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/></svg></button>
+        <button class="themes__btn" type="button" data-theme-set="dark" aria-pressed="false" title="Dark" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 1 1 9.8 4a6.6 6.6 0 0 0 10.2 10.2z"/></svg></button>
+        <button class="themes__btn" type="button" data-theme-set="system" aria-pressed="true" title="Match system" aria-label="Match system theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="4.5" width="18.4" height="12.5" rx="2"/><path d="M8.5 20.5h7"/></svg></button>
+      </div>
+      <a class="btn" href="https://github.com/thepixelabs/tach">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero__grid">
+      <div>
+        <h1>How fast is your coding agent, really?</h1>
+        <p class="hero__sub">
+          If you run your models yourself, Tach tells you how that's actually going. It
+          reads the history your coding agent already saves and shows you how fast it goes, which of
+          your models is quickest, and what's slowing things down.
+        </p>
+        <div class="cmd">
+          <pre class="cmd__code">git clone https://github.com/thepixelabs/tach
+cd tach &amp;&amp; ./run</pre>
+        </div>
+        <p class="hero__note">Takes about a minute. You'll have something to look at straight away, because your agent has been keeping notes all along.</p>
+      </div>
+      <dl class="facts">
+        <dt>Reads 11 agents</dt>
+        <dd>OpenCode, Cline, Roo&nbsp;Code, Zed, Goose, OpenClaw, Aider, Continue, Jan, LM&nbsp;Studio, Hermes</dd>
+
+        <dt>Watches 15 model servers</dt>
+        <dd>Ollama, MLX, llama.cpp, vLLM, SGLang, KoboldCpp and nine more</dd>
+
+        <dt>Needs from you</dt>
+        <dd>No account, no config, nothing to install</dd>
+      </dl>
+    </div>
+
+    <figure class="shot">
+      <img class="shot--dark" src="assets/shots/dashboard-dark.c017065c.jpg" alt="The Tach dashboard showing generation speed, where the time went and how much was reused" width="2200" height="1375" fetchpriority="high">
+      <img class="shot--light" src="assets/shots/dashboard-light.b8cf1d70.jpg" alt="" aria-hidden="true" width="2200" height="1375" fetchpriority="high">
+    </figure>
+  </div>
+</section>
+
+<!-- ============ SPEED ============ -->
+<section class="section">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>Your real speed, not your best day</h2>
+      <p>
+        You remember the run where it flew. Most runs are slower than that, and the slower number is
+        the one that decides whether a model is worth using. Tach shows all three, measured on your
+        own work rather than a benchmark.
+      </p>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat__n">14.5</span><span class="stat__u">tok/s typical</span><span class="stat__d">Half your requests are slower than this</span></div>
+      <div class="stat"><span class="stat__n">43.6</span><span class="stat__u">tok/s on a good run</span><span class="stat__d">You reach this about one time in ten</span></div>
+      <div class="stat"><span class="stat__n">88</span><span class="stat__u">tok/s peak</span><span class="stat__d">Your record, across every session</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MODELS ============ -->
+<section class="section section--alt">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>Which model is worth the wait</h2>
+      <p>
+        Benchmarks get run on someone else's code, on someone else's machine. This uses yours. You
+        can see which of your models is quickest, which one fails most often, and how much speed you
+        give up when you load the bigger one.
+      </p>
+    </div>
+    <figure class="shot shot--flat">
+      <img class="shot--dark" src="assets/shots/models-dark.8ca2d817.jpg" alt="Model comparison table: speed, cache reuse, error rate and context size for each model" width="2200" height="1375" loading="lazy">
+      <img class="shot--light" src="assets/shots/models-light.6026d2c1.jpg" alt="" aria-hidden="true" width="2200" height="1375" loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<!-- ============ WAITING ON ============ -->
+<section class="section">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>When it isn't the model's fault</h2>
+      <p>
+        Plenty of the time the model is fine and something else is eating the clock. Usually it's a
+        command your agent runs: a test suite that takes four minutes, or one that fails and gets
+        tried again. You can see exactly which ones, and how long each of them took.
+      </p>
+    </div>
+    <figure class="shot shot--flat">
+      <img class="shot--dark" src="assets/shots/tools-dark.9a2d1318.jpg" alt="Tool reliability table showing call counts, error rates and the longest single calls" width="2200" height="1375" loading="lazy">
+      <img class="shot--light" src="assets/shots/tools-light.bd42f3d5.jpg" alt="" aria-hidden="true" width="2200" height="1375" loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<!-- ============ SESSIONS ============ -->
+<section class="section section--alt">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>Every session, kept and searchable</h2>
+      <div>
+        <p>
+          Your agent's whole history stays browsable: filter by project, by model, by how fast it
+          ran. Open any one and you get the conversation back, formatted the way it was written,
+          with the code blocks, tables and tool calls intact rather than flattened into grey text.
+        </p>
+      </div>
+    </div>
+    <figure class="shot shot--flat">
+      <img class="shot--dark" src="assets/shots/sessions-dark.99641476.jpg" alt="The sessions list, filterable by project, model and speed" width="2200" height="1375" loading="lazy">
+      <img class="shot--light" src="assets/shots/sessions-light.17197553.jpg" alt="" aria-hidden="true" width="2200" height="1375" loading="lazy">
+    </figure>
+    <figure class="shot">
+      <img class="shot--dark" src="assets/shots/chat-dark.9c153010.jpg" alt="A session opened, showing the conversation with formatted code, a table and a tool call" width="2200" height="1375" loading="lazy">
+      <img class="shot--light" src="assets/shots/chat-light.adbf4a7e.jpg" alt="" aria-hidden="true" width="2200" height="1375" loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<!-- ============ SUPPORT ============ -->
+<section class="section">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>Works with what you already run</h2>
+      <div>
+        <p>
+          Nothing to connect and no key to paste. On startup Tach looks in the places these tools
+          already keep their history, and asks whichever model servers are listening what they are
+          serving.
+        </p>
+      </div>
+    </div>
+
+    <div class="support">
+      <div class="support__col">
+        <h3 class="support__h">Agents it reads</h3>
+        <ul class="support__list">
+          <li>OpenCode</li><li>Cline</li><li>Roo Code</li><li>Zed</li>
+          <li>Goose</li><li>OpenClaw</li><li>Aider</li><li>Continue</li>
+          <li>Jan</li><li>LM Studio</li><li>Hermes</li>
+        </ul>
+      </div>
+      <div class="support__col">
+        <h3 class="support__h">Model servers it watches</h3>
+        <ul class="support__list">
+          <li>Ollama</li><li>MLX LM</li><li>llama.cpp</li><li>vLLM</li>
+          <li>LM Studio</li><li>SGLang</li><li>KoboldCpp</li><li>LocalAI</li>
+          <li>TabbyAPI</li><li>Cortex</li><li>Jan</li><li>Text-gen WebUI</li>
+          <li>Open WebUI</li><li>Hermes</li><li>OpenClaw</li>
+        </ul>
+      </div>
+      <div class="support__col">
+        <h3 class="support__h">Found, not read yet</h3>
+        <ul class="support__list support__list--muted">
+          <li>Crush</li><li>Open WebUI</li><li>LibreChat</li><li>AnythingLLM</li>
+          <li>Msty</li><li>Chatbox</li><li>GPT4All</li>
+        </ul>
+        <p class="support__note">These show in the sidebar so you can see they were found. Adding a
+          reader for one is a single Python file.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CONTRIBUTE ============ -->
+<section class="section section--alt">
+  <div class="wrap">
+    <div class="section__lead">
+      <h2>Built in the open</h2>
+      <div>
+        <p>
+          It reads OpenCode, OpenClaw, Aider, Continue and Hermes today. If you use something else,
+          adding it is a contained job: one Python file that turns that tool's saved history into
+          the shape the rest of the app already uses, tested against your own sessions.
+        </p>
+        <p class="lead__cta">
+          <a class="btn" href="https://github.com/thepixelabs/tach/issues">Open an issue</a>
+          <a class="btn" href="https://github.com/thepixelabs/tach">Read the code</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SETUP ============ -->
+<section class="section">
+  <div class="wrap setup">
+    <div>
+      <h2 class="h2--solo">Try it</h2>
+      <div class="cmd">
+        <pre class="cmd__code">git clone https://github.com/thepixelabs/tach
+cd tach &amp;&amp; ./run</pre>
+      </div>
+      <p style="margin-top:18px"><a class="btn btn--solid" href="https://github.com/thepixelabs/tach">Get it on GitHub</a></p>
+    </div>
+    <div class="setup__notes">
+      <p><b>Then open localhost:3344 in your browser.</b> It goes looking for your agents by itself, so there's nothing to set up.</p>
+      <p><b>It only ever reads.</b> Your agents carry on exactly as before.</p>
+      <p><b>Free and open source.</b> MIT licensed.</p>
+      <p class="muted">The screenshots above come from a sample project.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div class="foot__brand">
+      <span class="brand__badge brand__badge--sm" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2.5 13.5h4l2.6-7.5 3.8 13 2.5-9 1.6 3.5H21.5"/>
+        </svg>
+      </span>
+      <div>
+        <div class="foot__name">Tach</div>
+        <div class="foot__meta">A <a href="https://pixelabs.net">PixeLabs</a> project. Free and open source, MIT licensed.</div>
+      </div>
+    </div>
+    <nav class="foot__links" aria-label="Footer">
+      <a href="https://github.com/thepixelabs/tach">GitHub</a>
+      <a href="https://pixelabs.net">pixelabs.net</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  /* Theme switch: light / dark / system. System is the default and simply
+     removes the override, letting the media query decide. */
+  (function () {
+    var root = document.documentElement;
+    var btns = document.querySelectorAll('[data-theme-set]');
+
+    function read() {
+      try { return localStorage.getItem('tt-theme') || 'system'; } catch (e) { return 'system'; }
+    }
+    function apply(choice) {
+      if (choice === 'system') root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', choice);
+      btns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.themeSet === choice));
+      });
+      try { localStorage.setItem('tt-theme', choice); } catch (e) {}
+    }
+
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () { apply(b.dataset.themeSet); });
+    });
+    apply(read());
+  })();
+</script>
+</body>
+</html>

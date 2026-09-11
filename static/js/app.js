@@ -1,5 +1,5 @@
 /**
- * Token Telemetry & Model Observatory
+ * Tach
  * Frontend application logic, customizable dashboard system, and scientific LLM observability panels.
  */
 
@@ -65,7 +65,7 @@ const DEFAULT_LAYOUT = [
 const BUILTIN_DASHBOARDS = {
   'default': {
     name: 'Default Overview',
-    icon: '\u26A1',
+    icon: 'chat',
     layout: DEFAULT_LAYOUT,
     filters: { window: 'all', harness: '', speed_tier: '', pinned: [] },
   },
@@ -83,7 +83,7 @@ const BUILTIN_DASHBOARDS = {
   },
   'token_economics': {
     name: 'Token Economics & Tools',
-    icon: '\uD83D\uDCCA',
+    icon: 'database',
     layout: [
       { id: 'kpi-banner', cols: 12, rows: 3 },
       { id: 'token-volume', cols: 6, rows: 5 },
@@ -95,7 +95,7 @@ const BUILTIN_DASHBOARDS = {
   },
   'realtime_monitor': {
     name: 'Real-Time Monitor',
-    icon: '\u23F1',
+    icon: 'stack',
     layout: [
       { id: 'live-pulse', cols: 12, rows: 4 },
       { id: 'telemetry-table', cols: 12, rows: 8 },
@@ -191,7 +191,7 @@ function archetypeLimits(panelId) {
 // ============================================================
 const PANEL_REGISTRY = {
   'coverage-strip': {
-    id: 'coverage-strip', title: 'Coverage & Freshness', category: 'core', icon: '\uD83D\uDCCB',
+    id: 'coverage-strip', title: 'Coverage & Freshness', category: 'core', icon: 'broadcast',
     description: 'What this dashboard is actually showing: session counts, turn counts and how many days really have data.',
     defaultCol: 12, render: renderCoveragePanel,
   },
@@ -254,7 +254,7 @@ const PANEL_REGISTRY = {
     id: 'kpi-banner',
     title: 'Key Telemetry Metrics',
     category: 'system',
-    icon: '⚡',
+    icon: 'zap',
     description: 'Hero summary of decode speed, peak burst, token throughput, and recorded sessions.',
     defaultCol: 12,
     render: renderKpiBanner,
@@ -263,7 +263,7 @@ const PANEL_REGISTRY = {
     id: 'telemetry-table',
     title: 'Live Scientific Turn & Request Telemetry',
     category: 'perf',
-    icon: '🔬',
+    icon: 'table',
     description: 'Detailed inspection table of recent MLX inference turns with TTFT, Prefill, Decode, and Memory.',
     defaultCol: 12,
     render: renderTelemetryTablePanel,
@@ -272,7 +272,7 @@ const PANEL_REGISTRY = {
     id: 'speculative-burst',
     title: 'Speculative Burst Analyzer',
     category: 'perf',
-    icon: '🚀',
+    icon: 'rocket',
     description: 'Multi-Token Prediction (MTP) draft acceptance spikes vs autoregressive decode baseline.',
     defaultCol: 4,
     render: renderSpeculativeBurstPanel,
@@ -281,7 +281,7 @@ const PANEL_REGISTRY = {
     id: 'prefill-vs-decode',
     title: 'Prefill (Prompt) vs Decode Velocity',
     category: 'perf',
-    icon: '⚡',
+    icon: 'zap',
     description: 'Comparing prompt matrix ingestion rate (20k-50k tok/s) against token decode rate (15-35 tok/s).',
     defaultCol: 6,
     render: renderPrefillVsDecodePanel,
@@ -290,7 +290,7 @@ const PANEL_REGISTRY = {
     id: 'ttft-latency',
     title: 'Time to First Token (TTFT) Latency',
     category: 'perf',
-    icon: '⏱️',
+    icon: 'timer',
     description: 'Latency before first generated token across prompt context sizes and KV-cache states.',
     defaultCol: 6,
     render: renderTtftLatencyPanel,
@@ -299,7 +299,7 @@ const PANEL_REGISTRY = {
     id: 'decode-acceleration',
     title: 'Speculative Warm-up (First 32 vs Last 32)',
     category: 'perf',
-    icon: '🏎️',
+    icon: 'gauge',
     description: 'Decode speed acceleration curve showing how MTP drafting warms up during turn generation.',
     defaultCol: 6,
     render: renderDecodeAccelPanel,
@@ -308,7 +308,7 @@ const PANEL_REGISTRY = {
     id: 'apc-cache',
     title: 'Automatic Prefix Cache (APC) Efficiency',
     category: 'system',
-    icon: '💾',
+    icon: 'database',
     description: 'KV-cache hit rate, matched prompt tokens, and unified memory block reutilization.',
     defaultCol: 6,
     render: renderApcCachePanel,
@@ -317,7 +317,7 @@ const PANEL_REGISTRY = {
     id: 'tps-trend',
     title: 'Decode Speed (tok/s) Timeline',
     category: 'perf',
-    icon: '📈',
+    icon: 'chartUp',
     description: 'Temporal trend of average generation TPS and peak burst performance with area fill.',
     defaultCol: 8,
     render: renderTpsTrendPanel,
@@ -326,7 +326,7 @@ const PANEL_REGISTRY = {
     id: 'speed-distribution',
     title: 'TPS Speed Distribution',
     category: 'perf',
-    icon: '📊',
+    icon: 'chartBar',
     description: 'Histogram breakdown of inference turns across speed tiers (<15 to 60+ tok/s).',
     defaultCol: 4,
     defaultRows: 4,
@@ -336,7 +336,7 @@ const PANEL_REGISTRY = {
     id: 'model-share',
     title: 'Model Output Share',
     category: 'analytics',
-    icon: '🍩',
+    icon: 'pie',
     description: 'Breakdown of token generation across local models and backends (MLX, Ollama, etc.).',
     defaultCol: 4,
     defaultRows: 4,
@@ -346,7 +346,7 @@ const PANEL_REGISTRY = {
     id: 'tool-usage',
     title: 'Agent Tool Call Breakdown',
     category: 'analytics',
-    icon: '🔧',
+    icon: 'wrench',
     description: 'Frequency ranking of tool calls (read, bash, edit, mcp) executed during sessions.',
     defaultCol: 4,
     defaultRows: 5,
@@ -356,16 +356,25 @@ const PANEL_REGISTRY = {
     id: 'token-volume',
     title: 'Token Throughput Volume',
     category: 'analytics',
-    icon: '🧱',
+    icon: 'stack',
     description: 'Daily token volume split between prompt context prefill and model generation output.',
     defaultCol: 6,
     render: renderTokenVolumePanel,
+  },
+  'engine-inventory': {
+    id: 'engine-inventory',
+    title: 'Models on this server',
+    category: 'system',
+    icon: 'stack',
+    description: 'What this engine has on disk, how big each one is, and which are resident now.',
+    defaultCol: 12,
+    render: renderEngineInventoryPanel,
   },
   'live-pulse': {
     id: 'live-pulse',
     title: 'Live Engine & Hardware Pulse',
     category: 'perf',
-    icon: '🛰️',
+    icon: 'broadcast',
     description: 'Real-time health monitor for MLX (:8080) and Ollama (:11434) backends and loaded models.',
     defaultCol: 6,
     render: renderLivePulsePanel,
@@ -374,7 +383,7 @@ const PANEL_REGISTRY = {
     id: 'duration-distribution',
     title: 'Session Duration Distribution',
     category: 'analytics',
-    icon: '⏳',
+    icon: 'clock',
     description: 'Histogram of conversation session lengths from quick turns to deep coding sprints.',
     defaultCol: 6,
     defaultRows: 4,
@@ -384,7 +393,7 @@ const PANEL_REGISTRY = {
     id: 'top-workspaces',
     title: 'Workspace Activity & Output',
     category: 'system',
-    icon: '📁',
+    icon: 'folder',
     description: 'Token output volume and session counts ranked by project repository and folder.',
     defaultCol: 6,
     defaultRows: 4,
@@ -394,7 +403,7 @@ const PANEL_REGISTRY = {
     id: 'sessions-explorer',
     title: 'Sessions & Prompts Explorer',
     category: 'analytics',
-    icon: '💬',
+    icon: 'chat',
     description: 'Filterable session history, topic search, speed tier filter, and turn-level inspection drawer.',
     defaultCol: 12,
     render: renderSessionsExplorerWidget,
@@ -573,15 +582,9 @@ function makeDashboardDefault(id) {
   showToast(`"${d.name}" opens on launch`);
 }
 
-function resetDefaultPointer() {
-  setDefaultDashboard(ws(), BUILTIN_DASHBOARDS, 'default');
-  persistWorkspace();
-  renderDashboardMenu();
-  showToast('Default reset to Default Overview');
-}
 
-// Reset a built-in's CONTENTS to factory. Distinct from resetting which
-// dashboard opens on launch, which is resetDefaultPointer above.
+// Reset a built-in's CONTENTS to factory. This is about the panels inside a
+// dashboard, not about which dashboard opens first.
 function resetDashboardToOriginal(id) {
   const d = resolveDashboard(ws(), id, BUILTIN_DASHBOARDS);
   if (!d || d.source !== 'builtin') {
@@ -612,7 +615,7 @@ function renderDashboardMenu() {
         <button class="dash-menu__item" type="button" role="menuitemradio"
                 aria-checked="${isActive}" onclick="openDashboard('${d.id}'); closeDashMenu();">
           <span class="dash-menu__check" aria-hidden="true">${isActive ? '\u2713' : ''}</span>
-          <span class="dash-menu__icon" aria-hidden="true">${d.icon || ''}</span>
+          <span class="dash-menu__icon" aria-hidden="true">${icon(d.icon || 'pulse')}</span>
           <span class="dash-menu__label">${escapeHtml(d.name)}</span>
           <span class="dash-menu__meta mono">${(d.layout || []).length}</span>
           ${isDefault ? '<span class="dash-menu__pin" title="Opens on launch">\u2605</span>' : ''}
@@ -650,11 +653,6 @@ function renderDashboardMenu() {
             onclick="createDashboardPrompt()">
       <span class="dash-menu__check" aria-hidden="true">+</span>
       <span class="dash-menu__label">New dashboard\u2026</span>
-    </button>
-    <button class="dash-menu__item dash-menu__item--action" type="button" role="menuitem"
-            onclick="resetDefaultPointer(); closeDashMenu();">
-      <span class="dash-menu__check" aria-hidden="true">\u21BA</span>
-      <span class="dash-menu__label">Reset which dashboard opens on launch</span>
     </button>
   `;
 }
@@ -867,12 +865,12 @@ function toggleEditLayout() {
 
   if (state.isEditingLayout) {
     if (btn) btn.classList.add('editing');
-    if (icon) icon.textContent = '✓';
+    if (icon) icon.innerHTML = window.icon ? window.icon('check') : '';
     if (txt) txt.textContent = 'Done Editing';
     if (banner) banner.style.display = 'flex';
   } else {
     if (btn) btn.classList.remove('editing');
-    if (icon) icon.textContent = '✏️';
+    if (icon) icon.innerHTML = window.icon ? window.icon('pencil') : '';
     if (txt) txt.textContent = 'Edit Layout';
     if (banner) banner.style.display = 'none';
   }
@@ -1116,19 +1114,19 @@ function renderDashboard() {
       <div class="dashboard-panel" id="panel-${item.id}" ${styleAttr}>
         <div class="panel-header">
           <div class="panel-title-wrap">
-            <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">⠿</span>
-            <span class="panel-icon">${def.icon}</span>
+            <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">${icon("grip")}</span>
+            <span class="panel-icon">${icon(def.icon)}</span>
             <span>${escapeHtml(def.title)}</span>
             <span class="panel-col-badge mono" id="col-badge-${item.id}">${item.cols || 6}\u00d7${item.rows || 4}</span>
           </div>
           <div class="panel-actions">
-            <button class="panel-expand-btn" onclick="togglePanelExpand('${item.id}')" title="Toggle Full Width / Restore Width">⤢</button>
-            <button class="panel-close-btn" onclick="removePanel('${item.id}')" title="Remove panel from dashboard">✕</button>
+            <button class="panel-expand-btn" onclick="togglePanelExpand('${item.id}')" title="Toggle Full Width / Restore Width">${icon("expand")}</button>
+            <button class="panel-close-btn" onclick="removePanel('${item.id}')" title="Remove panel from dashboard">${icon("close")}</button>
           </div>
         </div>
         <div class="panel-body" id="panel-body-${item.id}">
         </div>
-        <div class="panel-resize-handle" title="Drag to fluidly adjust width & height" onmousedown="initPanelResize(event, '${item.id}')">⤡</div>
+        <div class="panel-resize-handle" title="Drag to fluidly adjust width & height" onmousedown="initPanelResize(event, '${item.id}')">${icon("resize")}</div>
       </div>
     `;
   });
@@ -1570,7 +1568,7 @@ function renderToolUsagePanel(container, appState) {
     const pct = Math.round((t.count / maxCount) * 100);
     rows += `
       <div class="bar-row-item">
-        <span class="bar-row-label mono" style="color:var(--text-main);">🔧 ${escapeHtml(t.name)}</span>
+        <span class="bar-row-label mono" style="color:var(--text-main);">${icon("wrench")} ${escapeHtml(t.name)}</span>
         <div class="bar-row-track">
           <div class="bar-row-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--neon-amber), var(--neon-pink));"></div>
         </div>
@@ -1587,8 +1585,8 @@ function renderTpsTrendPanel(container, appState) {
   const data = appState.timeseries || [];
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:1.25rem;font-size:0.75rem;margin-bottom:0.75rem;">
-      <span style="color:var(--neon-acid);font-weight:600;">— Average TPS</span>
-      <span style="color:var(--neon-pink);font-weight:600;">— Peak TPS</span>
+      <span style="color:var(--neon-acid);font-weight:600;">- Average TPS</span>
+      <span style="color:var(--neon-pink);font-weight:600;">- Peak TPS</span>
     </div>
     <div class="chart-canvas-wrap" id="wrap-tps">
       <canvas id="canvas-tps"></canvas>
@@ -1717,7 +1715,7 @@ function renderTpsTrendPanel(container, appState) {
     if (idx >= 0 && idx < data.length) {
       const d = data[idx];
       tooltip.innerHTML = `
-        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">📅 ${d.date}</div>
+        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">${icon("calendar")} ${d.date}</div>
         <div style="color:var(--neon-acid);">Avg Speed: <strong>${(d.avg_tps || 0).toFixed(1)} tok/s</strong></div>
         <div style="color:var(--neon-pink);">Peak Burst: <strong>${(d.peak_tps || 0).toFixed(1)} tok/s</strong></div>
         <div style="color:var(--text-sub);font-size:0.7rem;margin-top:2px;">${d.sessions || 1} session(s)</div>
@@ -1832,7 +1830,7 @@ function renderTokenVolumePanel(container, appState) {
     if (idx >= 0 && idx < data.length) {
       const d = data[idx];
       tooltip.innerHTML = `
-        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">📅 ${d.date}</div>
+        <div style="font-weight:700;color:var(--text-main);margin-bottom:2px;">${icon("calendar")} ${d.date}</div>
         <div style="color:var(--neon-violet);">Output Gen: <strong>${formatNum(d.tokens_output)}</strong></div>
         <div style="color:var(--neon-cyan);">Input Context: <strong>${formatNum(d.tokens_input)}</strong></div>
         <div style="color:var(--text-main);border-top:1px solid var(--line-2);padding-top:2px;margin-top:2px;">Total: <strong>${formatNum(d.tokens_total)}</strong></div>
@@ -1846,59 +1844,113 @@ function renderTokenVolumePanel(container, appState) {
 }
 
 // 13. Live Engine & Hardware Pulse
-function renderLivePulsePanel(container, appState) {
+function renderLivePulsePanel(container, appState, opts) {
   const live = appState.live || {};
-  const mlx = live.mlx || {};
-  const ollama = live.ollama || {};
-  const claw = live.openclaw || {};
+  const only = (opts && opts.engine) || '';
 
-  const mlxDet = mlx.details || {};
-  const ollamaDet = ollama.details || {};
-  const clawDet = claw.details || {};
-
-  const box = (opts) => `
-    <div class="pulse-box ${opts.online ? 'is-online' : 'is-offline'}" style="--pulse-accent:${opts.accent};">
+  const box = (o) => `
+    <div class="pulse-box ${o.online ? 'is-online' : 'is-offline'}" style="--pulse-accent:${o.accent};">
       <div class="pulse-box-title">
-        <span>${escapeHtml(opts.name)}</span>
-        <span class="pulse-state mono">${opts.online ? '● ONLINE' : '○ OFFLINE'}</span>
+        <span>${escapeHtml(o.name)}</span>
+        <span class="pulse-state mono">${o.online ? '\u25CF ONLINE' : '\u25CB OFFLINE'}</span>
       </div>
-      <div class="pulse-box-val mono">${opts.value}</div>
-      <div class="pulse-box-sub">${opts.sub}</div>
+      <div class="pulse-box-val mono">${o.value}</div>
+      <div class="pulse-box-sub">${o.sub}</div>
     </div>
   `;
 
+  // One descriptor per engine, so filtering is a list operation rather than
+  // three hardcoded blocks that ignore the selection.
+  const mlxDet = (live.mlx || {}).details || {};
+  const ollamaDet = (live.ollama || {}).details || {};
+  const clawDet = (live.openclaw || {}).details || {};
+  const cppDet = (live.llamacpp || {}).details || {};
+
+  const ENGINES = [
+    { id: 'mlx', name: 'MLX Engine (:8080)', online: !!(live.mlx || {}).online,
+      accent: 'var(--accent-success)',
+      value: (live.mlx || {}).online ? `${mlxDet.decode_tok_s || 0} <span class="pulse-unit">tok/s</span>` : 'Idle',
+      sub: (live.mlx || {}).online ? escapeHtml(mlxDet.model?.split('/').pop() || 'Loaded') : 'Start with mlx_lm.server' },
+    { id: 'ollama', name: 'Ollama Engine (:11434)', online: !!(live.ollama || {}).online,
+      accent: 'var(--accent-secondary)',
+      value: (live.ollama || {}).online
+        ? (ollamaDet.active_model ? escapeHtml(ollamaDet.active_model) : 'Standby') : 'Offline',
+      sub: (live.ollama || {}).online
+        ? (ollamaDet.size_vram_gb ? `${ollamaDet.size_vram_gb} GB VRAM` : '0 models active')
+        : 'Local daemon' },
+    { id: 'llamacpp', name: 'llama.cpp (:8077)', online: !!(live.llamacpp || {}).online,
+      accent: 'var(--accent-warning)',
+      value: (live.llamacpp || {}).online ? 'Running' : 'Offline',
+      sub: cppDet.context ? `${formatNum(cppDet.context)} context` : 'llama-server' },
+    { id: 'openclaw_gw', name: `OpenClaw Gateway (:${clawDet.port || 18789})`,
+      online: !!(live.openclaw || {}).online, accent: 'var(--accent-primary)',
+      value: (live.openclaw || {}).online
+        ? (clawDet.version ? escapeHtml(String(clawDet.version)) : 'Running') : 'Offline',
+      sub: `${clawDet.sessions || 0} transcript${clawDet.sessions === 1 ? '' : 's'} on disk` },
+  ];
+
+  const rows = only ? ENGINES.filter(e => e.id === only) : ENGINES;
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'Nothing live for this engine',
+      body: 'This server does not report a live pulse. Everything below still comes from recorded sessions.',
+    });
+    return;
+  }
+  container.innerHTML = `<div class="live-pulse-grid">${rows.map(box).join('')}</div>`;
+}
+
+
+function renderEngineInventoryPanel(container, appState, opts) {
+  const live = appState.live || {};
+  const id = (opts && opts.engine) || '';
+  const det = (live[id] || {}).details || {};
+  const online = !!(live[id] || {}).online;
+
+  if (!online) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'Server is not answering',
+      body: 'Start it and its models appear here.',
+    });
+    return;
+  }
+
+  const rows = det.installed || (det.served || []).map(n => ({ name: n }));
+  if (!rows.length) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'No models reported',
+      body: 'The server is up but is not listing any models.',
+    });
+    return;
+  }
+
+  const loadedNames = new Set((det.loaded || []).map(m => m.name));
+  const hasMeta = rows.some(r => r.size_gb || r.parameters || r.quantization);
+
   container.innerHTML = `
-    <div class="live-pulse-grid">
-      ${box({
-        name: 'MLX Engine (:8080)',
-        online: mlx.online,
-        accent: 'var(--accent-success)',
-        value: mlx.online ? `${mlxDet.decode_tok_s || 0} <span class="pulse-unit">tok/s</span>` : 'Idle',
-        sub: mlx.online
-          ? escapeHtml(mlxDet.model?.split('/').pop() || 'Loaded')
-          : 'Start with mlx_vlm.server',
-      })}
-      ${box({
-        name: 'Ollama Engine (:11434)',
-        online: ollama.online,
-        accent: 'var(--accent-secondary)',
-        value: ollama.online
-          ? (ollamaDet.active_model ? escapeHtml(ollamaDet.active_model) : 'Standby')
-          : 'Offline',
-        sub: ollama.online
-          ? (ollamaDet.size_vram_gb ? `${ollamaDet.size_vram_gb} GB VRAM` : '0 models active')
-          : 'Local daemon',
-      })}
-      ${box({
-        name: `OpenClaw Gateway (:${clawDet.port || 18789})`,
-        online: claw.online,
-        accent: 'var(--accent-primary)',
-        value: claw.online
-          ? (clawDet.version ? escapeHtml(String(clawDet.version)) : 'Running')
-          : 'Offline',
-        sub: `${clawDet.sessions || 0} transcript${clawDet.sessions === 1 ? '' : 's'} on disk`,
-      })}
-    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Model</th>
+        ${hasMeta ? '<th class="num">Size</th><th class="num">Params</th><th>Quant</th><th class="num">Context</th>' : ''}
+        <th>State</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td class="mono">${escapeHtml(r.name || '')}</td>
+            ${hasMeta ? `
+              <td class="num mono">${r.size_gb ? r.size_gb + ' GB' : '--'}</td>
+              <td class="num mono">${escapeHtml(r.parameters || '--')}</td>
+              <td class="mono">${escapeHtml(r.quantization || '--')}</td>
+              <td class="num mono">${r.context ? formatNum(r.context) : '--'}</td>` : ''}
+            <td>${loadedNames.has(r.name)
+                  ? '<span class="status-chip mono online">Loaded</span>'
+                  : '<span class="status-chip mono offline">On disk</span>'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <p class="panel-note">${rows.length} model${rows.length === 1 ? '' : 's'} on this server.
+      ${loadedNames.size ? loadedNames.size + ' resident in memory right now.' : 'None resident right now.'}</p>
   `;
 }
 
@@ -2009,7 +2061,7 @@ function renderOutcomePanel(container, appState) {
   container.innerHTML = `
     <div class="panel-fill">
       <div class="stacked-bar">
-        ${Object.entries(counts).map(([k, v]) => `<div class="stacked-bar__seg" style="width:${v / total * 100}%;background:var(--tone-${toneFor(k)});" title="${k}: ${v}"></div>`).join('')}
+        ${Object.entries(counts).map(([k, v]) => `<div class="stacked-bar__seg" style="width:${v / total * 100}%;background:var(--tone-${toneFor(k)});" title="${escapeHtml(k)}: ${escapeHtml(v)}"></div>`).join('')}
       </div>
       <ul class="legend-list">
         ${Object.entries(counts).map(([k, v]) => `
@@ -2253,7 +2305,7 @@ function renderTopWorkspacesPanel(container, appState) {
     const pct = Math.round(((d.tokens_output || 0) / maxTokens) * 100);
     rows += `
       <div class="bar-row-item">
-        <span class="bar-row-label mono" style="color:var(--text-main);" title="${escapeHtml(d.path)}">📁 ${escapeHtml(d.folder)}</span>
+        <span class="bar-row-label mono" style="color:var(--text-main);" title="${escapeHtml(d.path)}">${icon("folder")} ${escapeHtml(d.folder)}</span>
         <div class="bar-row-track">
           <div class="bar-row-fill" style="width:${pct}%;background:var(--neon-violet);"></div>
         </div>
@@ -2353,7 +2405,7 @@ function renderGallery() {
       return `
         <div class="gallery-card ${isAdded ? 'added' : ''}">
           <div class="gallery-card-top">
-            <div class="gallery-card-icon">${p.icon}</div>
+            <div class="gallery-card-icon">${icon(p.icon)}</div>
             <div class="gallery-card-meta">
               <div class="gallery-card-title">${escapeHtml(p.title)}</div>
               <div class="gallery-card-desc">${escapeHtml(p.description)}</div>
@@ -2366,7 +2418,7 @@ function renderGallery() {
             </div>
             ${
               isAdded
-                ? `<button class="btn-ghost" onclick="removePanel('${p.id}')" style="color:var(--accent-success);border-color:rgba(var(--accent-success-rgb),0.35);">✓ Active</button>`
+                ? `<button class="btn-ghost" onclick="removePanel('${p.id}')" style="color:var(--accent-success);border-color:rgba(var(--accent-success-rgb),0.35);">${icon('check')} Active</button>`
                 : `<button class="btn-primary-neon" onclick="addPanel('${p.id}')" style="padding:0.3rem 0.75rem;font-size:0.75rem;">+ Add</button>`
             }
           </div>
@@ -2454,9 +2506,21 @@ async function fetchLiveStatus() {
     const res = await fetch('/api/live');
     state.live = await res.json();
 
-    // Re-render live panels if present on board
-    const livePanel = document.getElementById('panel-body-live-pulse');
-    if (livePanel) renderLivePulsePanel(livePanel, state);
+    // Re-render live panels if present on board. The Engines page may be
+    // filtered to one server, so carry that through or the poll undoes it.
+    let engineSel = '';
+    if (typeof parseHash === 'function' && state.activePage === 'engines') {
+      const want = parseHash(location.hash).sub || '';
+      const ids = ((state.catalog || {}).servers || []).map(x => x.id);
+      engineSel = ids.indexOf(want) !== -1 ? want : '';
+    }
+    if (state.activePage === 'engines') {
+      // Panels are keyed per engine on this page, so re-render it as a whole.
+      refreshActivePage();
+    } else {
+      const livePanel = document.getElementById('panel-body-live-pulse');
+      if (livePanel) renderLivePulsePanel(livePanel, state, { engine: engineSel });
+    }
 
     const burstPanel = document.getElementById('panel-body-speculative-burst');
     if (burstPanel) renderSpeculativeBurstPanel(burstPanel, state);
@@ -2674,25 +2738,41 @@ function updateServerStatuses() {
 
 // Clicking a local server jumps to the live pulse dashboard rather than filtering
 // sessions - a server is not a session source.
+function engineCollapsed() {
+  const p = (state.workspace && state.workspace.prefs) || {};
+  return Array.isArray(p.enginesCollapsed) ? p.enginesCollapsed : [];
+}
+
+function toggleEngineGroup(id) {
+  if (!state.workspace) return;
+  const prefs = state.workspace.prefs;
+  const list = engineCollapsed().slice();
+  const at = list.indexOf(id);
+  if (at === -1) list.push(id); else list.splice(at, 1);
+  prefs.enginesCollapsed = list;
+  saveWorkspace(null, state.workspace);
+
+  const sec = document.getElementById('enginegroup-' + id);
+  if (sec) {
+    const now = list.indexOf(id) !== -1;
+    sec.classList.toggle('is-collapsed', now);
+    const btn = sec.querySelector('.engine-group__toggle');
+    if (btn) btn.setAttribute('aria-expanded', String(!now));
+  }
+}
+
+function selectEngine(serverId) {
+  state.engineFilter = serverId;
+  navigateTo('engines', {}, serverId);
+}
+
 function showServerPanel(serverId) {
   document.querySelectorAll('.sidebar-server-item').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-server') === serverId);
   });
 
-  const live = state.live || {};
-  const det = live[serverId]?.details || {};
-  const online = !!live[serverId]?.online;
-  const labels = { mlx: 'MLX LM (:8080)', ollama: 'Ollama (:11434)', openclaw: `OpenClaw gateway (:${det.port || 18789})` };
-
-  navigateTo('observatory');
-  const panel = document.getElementById('panel-live-pulse');
-  if (panel) {
-    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    panel.classList.add('panel-flash');
-    setTimeout(() => panel.classList.remove('panel-flash'), 1200);
-  }
-
-  showToast(`${labels[serverId] || serverId}: ${online ? 'online' : 'offline'}`);
+  state.engineFilter = serverId;
+  navigateTo('engines', {}, serverId);
 }
 
 function showToast(msg) {
@@ -2792,16 +2872,16 @@ function renderSessionsList() {
         const providerClass = s.provider === 'mlx' ? 'badge-tps' : 'badge-provider';
         const tpsDisplay = s.tps > 0 ? (s.tps + ' tok/s') : 'n/a';
         return `
-          <div class="session-card" onclick="openSessionDetail('${s.id}')">
+          <div class="session-card" onclick="openSessionDetail('${escapeHtml(String(s.id))}')">
             <div class="session-main">
               <div class="session-title">${escapeHtml(s.title)}</div>
               <div class="session-meta-row">
                 <span class="badge badge-folder mono">${escapeHtml(s.folder)}</span>
                 <span class="badge badge-provider mono">${escapeHtml(s.harness || 'opencode')}</span>
                 <span class="badge ${providerClass} mono">${escapeHtml(s.provider)} / ${escapeHtml(s.model.split('/').pop())}</span>
-                <span>📅 ${s.date_str}</span>
-                <span>⏱ ${formatSecs(s.duration_s)}</span>
-                <span>💬 ${s.message_count} turns</span>
+                <span>${icon("calendar")} ${s.date_str}</span>
+                <span>${icon("timer")} ${formatSecs(s.duration_s)}</span>
+                <span>${icon("chat")} ${s.message_count} turns</span>
               </div>
             </div>
             <div class="session-stats">
@@ -2859,7 +2939,7 @@ function renderSessionDrawer(detail) {
           const reasoningContent = p.content || p.text || '';
           partsHtml += `
             <details class="thinking-box" open>
-              <summary class="thinking-title">🧠 Reasoning Chain (${reasoningContent.length} chars)</summary>
+              <summary class="thinking-title">${icon("brain")} Reasoning Chain (${reasoningContent.length} chars)</summary>
               <div class="msg-text md thinking-content" style="font-size:0.8rem;margin-top:0.4rem;line-height:1.5;">${renderMarkdown(reasoningContent)}</div>
             </details>
           `;
@@ -2869,8 +2949,8 @@ function renderSessionDrawer(detail) {
           partsHtml += `
             <details class="tool-box">
               <summary class="tool-header">
-                <span>🔧 Tool Call: <strong>${escapeHtml(p.tool || 'tool')}</strong> [${escapeHtml(argKeys)}]</span>
-                <span style="font-size:0.7rem;color:var(--text-sub);">${p.status || 'done'}</span>
+                <span>${icon("wrench")} Tool Call: <strong>${escapeHtml(p.tool || 'tool')}</strong> [${escapeHtml(argKeys)}]</span>
+                <span style="font-size:0.7rem;color:var(--text-sub);">${escapeHtml(p.status || 'done')}</span>
               </summary>
               <div class="tool-body" style="margin-top:0.5rem;"><strong>Input:</strong>
 ${escapeHtml(JSON.stringify(p.input, null, 2))}
@@ -2889,7 +2969,7 @@ ${escapeHtml(outPreview)}</div>
       }
 
       const tpsBadge = !isUser && msg.tps > 0 
-        ? `<span class="msg-speed-pill mono">⚡ ${msg.tps} tok/s</span>` 
+        ? `<span class="msg-speed-pill mono">${icon("zap")} ${msg.tps} tok/s</span>` 
         : '';
 
       const tokensBadge = !isUser && msg.tokens_output > 0
@@ -2924,7 +3004,7 @@ function renderSessionsExplorerWidget(container, appState, item) {
       <div class="sessions-filter-bar">
         <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
           <div class="search-box" style="flex:1;min-width:220px;">
-            <span class="search-icon">🔍</span>
+            <span class="search-icon">${icon("search")}</span>
             <input type="text" class="search-input explorer-search-input" placeholder="Search sessions, topics, prompts..." value="${escapeHtml(state.activeFilter.q || '')}">
           </div>
           <div class="filter-selects">
@@ -2939,10 +3019,10 @@ function renderSessionsExplorerWidget(container, appState, item) {
             </select>
             <select class="custom-select explorer-filter-speed" title="Filter by Speed Tier">
               <option value="">All Speeds</option>
-              <option value="turbo">⚡ Turbo (45+ TPS)</option>
-              <option value="fast">🚀 Fast (25-45 TPS)</option>
-              <option value="standard">🏎 Standard (15-25 TPS)</option>
-              <option value="deep">🐢 Deep Reasoner (<15 TPS)</option>
+              <option value="turbo">Turbo (45+ tok/s)</option>
+              <option value="fast">Fast (25 to 45 tok/s)</option>
+              <option value="standard">Standard (15 to 25 tok/s)</option>
+              <option value="deep">Deep reasoner (under 15 tok/s)</option>
             </select>
             <select class="custom-select explorer-filter-sort" title="Sort Order">
               <option value="latest">Latest First</option>
@@ -3064,7 +3144,7 @@ function renderDataSources() {
               data-harness="${h.id === 'all' ? '' : h.id}"
               ${unreadable ? 'disabled title="Detected on this machine, but its transcript format is not read yet"' : ''}
               onclick="selectDataSource('${h.id === 'all' ? '' : h.id}')">
-        <span class="source-icon" aria-hidden="true">${h.icon || ''}</span>
+        <span class="source-icon" aria-hidden="true">${icon(h.icon)}</span>
         <span class="source-name">${escapeHtml(h.name)}</span>
         ${unreadable
           ? '<span class="source-pill mono" title="Not readable yet">\u2013</span>'
@@ -3088,7 +3168,7 @@ function renderServerList() {
     <button class="sidebar-server-item${s.online ? ' is-online' : ''}"
             data-server="${s.id}" onclick="showServerPanel('${s.id}')"
             title="${escapeHtml(s.name)} on port ${s.port}${s.installed ? '' : ' (not installed)'}">
-      <span class="source-icon" aria-hidden="true">${s.icon || ''}</span>
+      <span class="source-icon" aria-hidden="true">${icon(s.icon)}</span>
       <span class="server-meta">
         <span class="source-name">${escapeHtml(s.name)}</span>
         <span class="server-port mono">:${s.port}</span>
@@ -3097,15 +3177,6 @@ function renderServerList() {
     </button>
   `).join('');
 
-  const dots = document.getElementById('sidebarBackendStatus');
-  if (dots) {
-    dots.innerHTML = rows.slice(0, 4).map(s => `
-      <div class="backend-dot-status ${s.online ? 'online' : 'offline'}" title="${escapeHtml(s.name)} :${s.port}">
-        <span class="dot${s.online ? '' : ' red'}"></span>
-        <span class="mono">${escapeHtml(s.name.split(' ')[0].toUpperCase())}</span>
-      </div>
-    `).join('');
-  }
 }
 
 // Settings: the full catalog, so it is clear what was looked for and not found.
@@ -3119,7 +3190,7 @@ function renderCatalogTable() {
 
   const srcRow = c => `
     <tr class="${c.detected ? '' : 'is-absent'}">
-      <td>${c.icon || ''} ${escapeHtml(c.name)}</td>
+      <td><span class="source-icon">${icon(c.icon)}</span> ${escapeHtml(c.name)}</td>
       <td class="mono">${c.kind}</td>
       <td>${c.detected
             ? (c.readable ? '<span class="tag" data-tone="good">read</span>'
@@ -3130,7 +3201,7 @@ function renderCatalogTable() {
 
   const srvRow = s => `
     <tr class="${(s.online || s.installed) ? '' : 'is-absent'}">
-      <td>${s.icon || ''} ${escapeHtml(s.name)}</td>
+      <td><span class="source-icon">${icon(s.icon)}</span> ${escapeHtml(s.name)}</td>
       <td class="mono">:${s.port}</td>
       <td>${s.online ? '<span class="tag" data-tone="good">online</span>'
                      : s.installed ? '<span class="tag" data-tone="warn">installed, stopped</span>'
@@ -3167,7 +3238,7 @@ function renderCatalogTable() {
 registerPage({
   id: 'observatory',
   title: 'Dashboards',
-  icon: '\u26A1',
+  icon: 'dashboards',
   navSection: 'main',
   toolbar: ['dashboardPicker', 'timeWindow', 'editLayout', 'addPanel', 'export'],
   mount(el) {
@@ -3195,7 +3266,7 @@ registerPage({
 registerPage({
   id: 'sessions',
   title: 'Sessions',
-  icon: '\uD83D\uDCAC',
+  icon: 'sessions',
   navSection: 'main',
   toolbar: ['timeWindow', 'export'],
   mount(el) {
@@ -3218,36 +3289,125 @@ registerPage({
 registerPage({
   id: 'engines',
   title: 'Engines',
-  icon: '\uD83D\uDEF0\uFE0F',
+  icon: 'engines',
   navSection: 'analysis',
   toolbar: [],
-  mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Local Engines</h1><p class="page-sub">Live inference servers. Everything here is measured in real time and is unavailable while a server is down.</p></div><div class="dashboard-grid" id="enginesGrid"></div>'; },
+  mount(el) {
+    el.innerHTML = '<div class="page-head"><h1 class="page-title" id="enginesTitle">Local Engines</h1>'
+      + '<p class="page-sub" id="enginesSub"></p></div>'
+      + '<div class="engine-tabs" id="engineTabs"></div>'
+      + '<div id="enginesBody"></div>';
+  },
   refresh() {
-    const grid = document.getElementById('enginesGrid');
-    if (!grid) return;
-    const panels = [
-      ['live-pulse', 12, 4],
-      ['speculative-burst', 6, 5],
-      ['decode-acceleration', 6, 5],
-      ['prefill-vs-decode', 6, 4],
-      ['ttft-latency', 6, 4],
-      ['apc-cache', 6, 4],
-      ['telemetry-table', 12, 8],
-    ];
-    grid.innerHTML = panels.map(([id, c, r]) => {
-      const def = PANEL_REGISTRY[id];
-      return def ? `
-        <div class="dashboard-panel" style="--panel-cols:${c};--panel-rows:${r};">
-          <div class="panel-header"><div class="panel-title-wrap">
-            <span class="panel-icon">${def.icon}</span><span>${escapeHtml(def.title)}</span>
-          </div></div>
-          <div class="panel-body" id="panel-body-${id}"></div>
-        </div>` : '';
-    }).join('');
-    panels.forEach(([id]) => {
-      const def = PANEL_REGISTRY[id];
-      const c = document.getElementById('panel-body-' + id);
-      if (def && c) def.render(c, state, {});
+    const body = document.getElementById('enginesBody');
+    if (!body) return;
+
+    // The router hands refresh the element, not the route, so read the hash.
+    const live = state.live || {};
+    const cat = state.catalog || {};
+    const servers = (cat.servers || []).filter(s => s.online || s.installed);
+
+    // Anything from the URL is attacker-controlled, and this value ends up in
+    // markup and in element ids. Accept it only if it names a server we know.
+    const requested = (typeof parseHash === 'function') ? (parseHash(location.hash).sub || '') : '';
+    const knownIds = new Set(servers.map(x => x.id));
+    const selected = knownIds.has(requested) ? requested : '';
+
+    const tabs = document.getElementById('engineTabs');
+    if (tabs) {
+      tabs.innerHTML = [{ id: '', name: 'All engines' }].concat(servers).map(s => `
+        <button class="engine-tab${(s.id || '') === selected ? ' active' : ''}"
+                onclick="selectEngine('${s.id || ''}')">
+          ${s.id ? `<span class="dot${(live[s.id] || {}).online ? '' : ' red'}"></span>` : ''}${escapeHtml(s.name)}
+        </button>`).join('');
+    }
+
+    const FALLBACK = { mlx: 'MLX LM', ollama: 'Ollama', llamacpp: 'llama.cpp',
+                       openclaw_gw: 'OpenClaw gateway', lmstudio: 'LM Studio', vllm: 'vLLM' };
+    const sel = servers.find(s => s.id === selected)
+      || (selected ? { id: selected, name: FALLBACK[selected] || selected, port: '' } : null);
+
+    const title = document.getElementById('enginesTitle');
+    const sub = document.getElementById('enginesSub');
+    if (title) title.textContent = sel ? sel.name : 'Local Engines';
+    if (sub) {
+      sub.textContent = sel
+        ? ((live[sel.id] || {}).online
+            ? `Answering on port ${sel.port}.`
+            : `Not answering on port ${sel.port}. Start it and this fills in.`)
+        : 'Every local server this machine knows about, grouped by engine.';
+    }
+
+    // Which panels belong to which engine. Only MLX reports per-request
+    // detail, so only MLX gets the request panels; every engine that lists
+    // models gets an inventory.
+    const panelsFor = (id) => {
+      const det = (live[id] || {}).details || {};
+      const out = [['live-pulse', 12, 3]];
+      if ((det.installed && det.installed.length) || (det.served && det.served.length)) {
+        out.push(['engine-inventory', 12, 5]);
+      }
+      if (id === 'mlx') {
+        out.push(['speculative-burst', 6, 5], ['decode-acceleration', 6, 5],
+                 ['prefill-vs-decode', 6, 4], ['ttft-latency', 6, 4],
+                 ['apc-cache', 6, 4], ['telemetry-table', 12, 8]);
+      }
+      return out;
+    };
+
+    const groupIds = selected ? [selected] : servers.map(s => s.id);
+    const mounted = [];
+
+    body.innerHTML = groupIds.map(id => {
+      const server = servers.find(s => s.id === id) || { id, name: FALLBACK[id] || id, port: '' };
+      const on = !!(live[id] || {}).online;
+      const panels = panelsFor(id);
+      // Collapsing only makes sense when several engines are stacked.
+      const collapsible = groupIds.length > 1;
+      const isCollapsed = collapsible && engineCollapsed().indexOf(id) !== -1;
+      return `
+        <section class="engine-group${isCollapsed ? ' is-collapsed' : ''}" id="enginegroup-${id}">
+          <header class="engine-group__head">
+            ${collapsible ? `
+              <button class="engine-group__toggle" type="button"
+                      aria-expanded="${!isCollapsed}" aria-controls="enginegroup-body-${id}"
+                      onclick="toggleEngineGroup('${id}')"
+                      title="${isCollapsed ? 'Expand' : 'Collapse'} ${escapeHtml(server.name)}">
+                ${icon('chevronDown')}
+              </button>` : ''}
+            <span class="engine-group__icon">${icon(server.icon || 'server')}</span>
+            <h2 class="engine-group__name">${escapeHtml(server.name)}</h2>
+            <span class="engine-group__port mono">:${server.port || '--'}</span>
+            <span class="status-chip mono ${on ? 'online' : 'offline'}">${on ? 'Online' : 'Offline'}</span>
+            ${collapsible ? `<span class="engine-group__count mono">${panels.length} panel${panels.length === 1 ? '' : 's'}</span>` : ''}
+          </header>
+          <div class="dashboard-grid engine-group__body" id="enginegroup-body-${id}">
+            ${panels.map(([pid, c, r]) => {
+              const def = PANEL_REGISTRY[pid];
+              if (!def) return '';
+              const key = id + '__' + pid;
+              mounted.push([key, pid, id]);
+              return `
+                <div class="dashboard-panel" style="--panel-cols:${c};--panel-rows:${r};">
+                  <div class="panel-header"><div class="panel-title-wrap">
+                    <span class="panel-icon">${icon(def.icon)}</span><span>${escapeHtml(def.title)}</span>
+                  </div></div>
+                  <div class="panel-body" id="panel-body-${key}"></div>
+                </div>`;
+            }).join('')}
+          </div>
+        </section>`;
+    }).join('') || stateBlock('empty', {
+      title: 'No local servers found',
+      body: 'Nothing is installed or answering on the usual ports.',
+    });
+
+    const collapsedNow = engineCollapsed();
+    mounted.forEach(([key, pid, engineId]) => {
+      if (groupIds.length > 1 && collapsedNow.indexOf(engineId) !== -1) return;
+      const def = PANEL_REGISTRY[pid];
+      const c = document.getElementById('panel-body-' + key);
+      if (def && c) def.render(c, state, { engine: engineId });
     });
   },
 });
@@ -3257,7 +3417,7 @@ registerPage({
 registerPage({
   id: 'tools',
   title: 'Tools',
-  icon: '\uD83D\uDD27',
+  icon: 'tools',
   navSection: 'analysis',
   toolbar: ['timeWindow'],
   mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Tools</h1><p class="page-sub">Where agent wall clock actually goes, and which tools fail.</p></div><div id="toolsBody"></div>'; },
@@ -3300,7 +3460,7 @@ registerPage({
 registerPage({
   id: 'models',
   title: 'Models',
-  icon: '\uD83E\uDDEE',
+  icon: 'models',
   navSection: 'analysis',
   toolbar: ['timeWindow'],
   mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Models</h1><p class="page-sub">Speed, cache behaviour, reliability and context handling per model.</p></div><div id="modelsBody"></div>'; },
@@ -3334,7 +3494,7 @@ registerPage({
 registerPage({
   id: 'projects',
   title: 'Projects',
-  icon: '\uD83D\uDCC1',
+  icon: 'projects',
   navSection: 'analysis',
   toolbar: ['timeWindow'],
   mount(el) { el.innerHTML = '<div class="page-head"><h1 class="page-title">Projects</h1><p class="page-sub">Where effort landed, and which files the agent kept revisiting.</p></div><div id="projectsBody"></div>'; },
@@ -3382,7 +3542,7 @@ registerPage({
 registerPage({
   id: 'settings',
   title: 'Settings & Theme',
-  icon: '\u2699\uFE0F',
+  icon: 'settings',
   navSection: 'foot',
   toolbar: [],
   mount(el) {
@@ -3416,7 +3576,7 @@ function updateModeToggle() {
   btn.setAttribute('aria-label', isLight ? 'Switch to dark mode' : 'Switch to light mode');
   if (label) label.textContent = isLight ? 'Light mode' : 'Dark mode';
   const icon = btn.querySelector('.mode-toggle__icon');
-  if (icon) icon.textContent = isLight ? '\u2600' : '\u263D';
+  if (icon) icon.innerHTML = window.icon ? window.icon(isLight ? 'sun' : 'moon') : '';
 }
 
 function openSettingsModal() { navigateTo('settings'); }
@@ -3452,6 +3612,15 @@ function applyTheme(themeName) {
   refreshActivePage();
 }
 
+function paintDataIcons(root) {
+  (root || document).querySelectorAll('[data-ic]').forEach(el => {
+    const name = el.getAttribute('data-ic');
+    if (el.firstElementChild && el.firstElementChild.tagName === 'svg') return;
+    const svg = icon(name);
+    if (svg) el.innerHTML = svg;
+  });
+}
+
 function applyMode(mode) {
   state.mode = mode;
   if (state.workspace) {
@@ -3462,6 +3631,11 @@ function applyMode(mode) {
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.classList.toggle('active', btn.id === ('btnMode' + mode.charAt(0).toUpperCase() + mode.slice(1)));
   });
+  document.querySelectorAll('.mode-seg__btn').forEach(btn => {
+    const on = btn.dataset.mode === mode;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-checked', String(on));
+  });
 
   let effectiveMode = mode;
   if (mode === 'system') {
@@ -3470,7 +3644,7 @@ function applyMode(mode) {
   }
   document.documentElement.setAttribute('data-mode', effectiveMode);
 
-  updateModeToggle();
+  paintDataIcons();
   refreshActivePage();
 }
 
@@ -3511,9 +3685,6 @@ function renderSystemInfo() {
 
   const clawPort = live.openclaw?.details?.port || 18789;
   const clawState = live.openclaw?.online ? 'online' : 'offline';
-  set('sysOpenClawGw', `http://127.0.0.1:${clawPort} (${clawState})`);
-  set('sysMlxUrl', `http://127.0.0.1:8080 (${live.mlx?.online ? 'online' : 'offline'})`);
-  set('sysOllamaUrl', `http://127.0.0.1:11434 (${live.ollama?.online ? 'online' : 'offline'})`);
 }
 
 function closeSettingsModal() {

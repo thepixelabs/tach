@@ -1,92 +1,133 @@
-# Token Telemetry
+# Tach
 
-A lightweight, zero-dependency local observatory for your coding agents and LLM inference servers. Token Telemetry hooks into your local model harnesses and engines to track generation speed, prompt caching efficiency, token costs, context growth, and tool execution patterns in real time.
+A local dashboard for coding agents that run on local models. It reads the history your agents already write to disk and shows generation speed, prompt cache reuse, context growth, tool latency, and where your agent's time actually went.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│  TOKEN TELEMETRY OBSERVATORY                                           │
-│  Harnesses: OpenCode • OpenClaw • Aider • Continue                     │
-│  Engines:   MLX LM • Ollama                                            │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![The Tach dashboard](docs/assets/shots/dashboard-dark.jpg)
 
-## Why Token Telemetry?
+Zero dependencies, no account, no network. Python standard library and vanilla JavaScript.
 
-When running local models for agentic coding, standard terminals only show brief progress indicators or raw token counts. Critical performance characteristics often remain hidden:
+Tach is scoped to models you run yourself; agents that only talk to a hosted API are not read, on purpose. It reads history after the fact, so nothing sits in the path of your agent while it works.
 
-* Why did one turn decode at 32 tokens per second while another spiked to 118,000?
-* How much time was spent on prompt prefill versus token generation?
-* Did Automatic Prefix Caching (APC) hit, or did the model recompute the entire repository context?
-* Which tool calls consume the most tokens and context window space?
+## Why
 
-Token Telemetry answers these questions through a clean, customizable dashboard that runs entirely on your local machine without external telemetry services or cloud dependencies.
+A terminal gives you a spinner and a token count. It does not tell you:
 
-## Key Capabilities
+* Whether a slow session was the model thinking or a tool call that hung
+* How much of your context was served from cache instead of re-encoded
+* Which tools fail, and which ones quietly eat hours
+* How large your context actually grows, as distinct from how much input you are billed for
+* Which model is genuinely faster for your work
 
-### Multi-Harness Auto-Discovery
-You do not need to configure paths manually. On startup, the server automatically inspects standard operating system locations for:
+Tach answers those from data your machine already has.
 
-1. **OpenCode**: Reads `opencode.db` from standard XDG data directories, `~/Library/Application Support/opencode/`, and local application data folders.
-2. **OpenClaw**: Scans every OpenClaw home on the machine (`$OPENCLAW_HOME`, `~/.openclaw`, XDG/Application Support locations, and project-local `.openclaw` directories) for agent transcripts under `agents/<agent>/sessions/*.jsonl`, and reads `state/openclaw.sqlite` for live ACP sessions.
-3. **Aider**: Scans git repositories and project roots for `.aider.chat.history.md` records.
-4. **Continue.dev**: Pulls session metadata and prompt histories from `~/.continue/sessions/`.
-5. **Local Servers**: Queries live endpoints on MLX LM (`localhost:8080`), Ollama (`localhost:11434`), and the OpenClaw gateway (port read from `openclaw.json`, default `18789`) for reachability, active model status, context windows, and continuous batching metrics. These are engines, not session archives, and are listed separately from data sources in the sidebar.
+## Quick start
 
-### Speculative Decoding & MTP Telemetry
-If you run modern speculative architectures such as Qwen MTP or Medusa on Apple Silicon, you will occasionally notice instantaneous decode rates exceeding 100,000 tokens per second in your logs. Token Telemetry captures and explains these multi-token verification bursts alongside standard autoregressive generation curves.
-
-### Privacy and Anonymization
-All paths displayed in the dashboard and exported datasets are automatically sanitized. User home directories are masked to `~/...` so you can record demos or share telemetry screenshots without leaking sensitive filesystem structures or usernames.
-
-### Customizable Dashboard
-Every chart and telemetry card can be resized between compact, normal, wide, and full span. You can remove cards you do not need, add panels from the gallery, or reset to default layouts at any time. Preferences persist locally in your browser.
-
-## Quick Start
-
-### Requirements
-Token Telemetry requires Python 3.9 or newer. There are no third-party pip packages to install; everything relies on Python's built-in standard library (`sqlite3`, `http.server`, `urllib`, `json`).
-
-### Running the Server
-
-Clone the repository and run:
+Python 3.9 or newer. Nothing to install.
 
 ```bash
-chmod +x run.sh
-./run.sh
+git clone https://github.com/thepixelabs/tach
+cd tach
+./run
 ```
 
-Or invoke the Python server directly:
+Then open <http://127.0.0.1:3344>.
 
 ```bash
-python3 server.py
+./run 8080          # another port
+./run --no-browser  # start it but leave the browser alone
+python3 server.py   # skip the wrapper; takes a port too
 ```
 
-By default, the server listens on `http://127.0.0.1:3344` and opens your default browser.
+## What it reads
 
-### Custom Flags and Overrides
+Nothing to configure. On startup Tach looks for:
 
-If your database or session directory lives in a custom location, pass it via command-line arguments or environment variables:
+| Source | Where |
+|---|---|
+| **OpenCode** | `opencode.db` in XDG data dirs, `~/Library/Application Support/opencode/`, `~/.opencode/`, or `%APPDATA%` |
+| **OpenClaw** | JSONL transcripts under every OpenClaw home: `$OPENCLAW_HOME`, `~/.openclaw`, XDG/Application Support, and project-local `.openclaw` dirs |
+| **Hermes Agent** | `state.db` under `HERMES_HOME` (default `~/.hermes`), including named profiles |
+| **Aider** | `.aider.chat.history.md` in the working tree, your home dir, and sibling project dirs |
+| **Continue** | `~/.continue/sessions/` |
+| **Cline** | VS Code global storage, `saoudrizwan.claude-dev/tasks` |
+| **Roo Code** | VS Code global storage, `rooveterinaryinc.roo-cline/tasks` |
+| **Zed** | `Zed/conversations` and `Zed/threads` |
+| **Goose** | `goose/sessions/` in XDG data dirs |
+| **LM Studio** | `~/.lmstudio/conversations/` |
+| **Jan** | `~/jan/threads/` |
+
+Seven more are found and listed but not read yet: Crush, Open WebUI, LibreChat, AnythingLLM, Msty, Chatbox and GPT4All. Your sidebar shows only what is actually on your machine, and Settings rescans on demand after you install something new.
+
+Fifteen local inference servers are probed for reachability, loaded model and throughput: MLX LM (`:8080`), Ollama (`:11434`), llama.cpp (`:8077`), LM Studio (`:1234`), vLLM (`:8000`), Jan (`:1337`), KoboldCpp (`:5001`), Text-gen WebUI (`:5000`), LocalAI (`:8081`), SGLang (`:30000`), Cortex (`:39281`), TabbyAPI (`:5555`), Open WebUI (`:3000`), the Hermes gateway (`:8642`) and the OpenClaw gateway (`:18789`). Several of these share port 8080, so each probe carries the endpoint that identifies the server rather than trusting the port alone.
+
+### Overrides
+
+Paths are discovered automatically. Override them only if yours are unusual.
 
 ```bash
-# Specify a custom port
-python3 server.py 8080
-
-# Specify custom database paths
-python3 server.py --opencode-db /path/to/opencode.db --openclaw-db /path/to/openclaw.sqlite
-
-# Add an OpenClaw home to scan for transcripts (repeatable)
-python3 server.py --openclaw-home /path/to/.openclaw
-
-# Run headless without opening a browser
-python3 server.py --no-browser
+python3 server.py --opencode-db /path/to/opencode.db
+python3 server.py --openclaw-db /path/to/openclaw.sqlite
+python3 server.py --openclaw-home /path/to/.openclaw   # repeatable
 ```
 
-Supported environment variables include `OPENCODE_DB`, `OPENCLAW_DB`, `AIDER_DIR`, `MLX_HOST`, and `OLLAMA_HOST`.
+`OPENCODE_DB`, `OPENCLAW_DB`, `OPENCLAW_HOME`, `HERMES_HOME` and `XDG_DATA_HOME` are read during discovery and do the same job. `API_SERVER_PORT` is read too, but it sets the port Tach probes for the Hermes gateway, not the port Tach itself serves on.
 
-## Data Export
+## What it shows
 
-Click the **Export JSON** button in the header or make an HTTP request to `/api/export`. The endpoint yields filtered turn-by-turn records containing prompt token counts, completion token counts, duration metrics, tool call events, and timestamps for your own scientific benchmarks.
+**Observatory.** A dashboard you can rearrange: decode speed percentiles, the split of agent wall clock between tool execution, reasoning and generation, cache savings, outcome and failure counts, context economics. Save any arrangement as a named dashboard, set a default, duplicate or delete it. Built-in dashboards can be customised and reset, but not deleted. Panels move and resize on a twelve column grid, and layouts live in your browser.
+
+**Sessions.** Every session across every source, searchable and filterable, with a full transcript view including per turn tokens and tool calls.
+
+**Engines.** Live metrics from whichever inference server is running: throughput, time to first token, prefix cache hit rate, request history.
+
+**Tools.** Call counts, error rates and latency percentiles per tool, plus the individual calls that ate the most wall clock.
+
+**Models.** Every model you have used, compared on speed, cache reuse, error rate and context handling.
+
+**Projects.** Where effort landed, grouped by repository, and which files the agent kept re-editing.
+
+## How the numbers are defined
+
+Some of these differ from what other tools report, so they are worth stating plainly.
+
+**Decode speed** is measured per assistant turn and reported as a median with p90, p99 and peak. A single average hides a wide distribution. Dividing total output by total elapsed time answers a different question, and that figure is shown separately as end to end throughput, which includes time spent in tools.
+
+**Billed input** is the sum of prompt tokens across turns. Every turn resends the conversation, so this grows far faster than your context does. **Peak context** is the largest single turn, and is the number to read when you want to know how big your context got.
+
+**Turn time** splits into tool execution, reasoning, and the remainder. That remainder is prefill, generation and queueing together. Most sources do not record time to first token, so prefill cannot be separated out and is not claimed to be.
+
+**Live engine metrics** exist only while that engine is running. Nothing is recorded when it is offline, and panels say so rather than showing a stale or placeholder value.
+
+## Export and API
+
+**Export JSON** in the header, or `GET /api/export`, returns the filtered set with per turn token counts, durations, tool events and timestamps.
+
+The rest of the API is directly useful too: `/api/stats`, `/api/sessions`, `/api/session/<id>`, `/api/turns`, `/api/tools`, `/api/models`, `/api/projects`, `/api/timeseries`, `/api/live`, `/api/catalog`.
+
+## Privacy
+
+Tach collects nothing, sends nothing and stores nothing about you. There is no account, no key, no analytics and no update check. The server binds to `127.0.0.1`, refuses requests that do not carry a local `Host` header, and its only outbound requests go to inference servers on your own loopback. Fonts and icons are served from this repo, so a normal run makes no external request at all.
+
+Your data stays in the files your agents already wrote. Tach opens them read only and never writes to them.
+
+Your home directory is masked to `~/...` everywhere it appears, including inside message bodies and tool output, so a screenshot or a pasted export does not give away your username or directory layout. Project names, session titles, branch names and model names are shown as they are.
 
 ## Contributing
 
-Contributions are welcome. Please ensure pull requests keep the zero-dependency philosophy intact (standard library only for backend services) and maintain path sanitization for privacy.
+Pull requests welcome. Two constraints: the backend stays standard library only, and paths stay masked.
+
+Adding a source is a catalog entry plus a reader. Adding a server is a catalog entry with the endpoint that identifies it.
+
+Tests are Node's built-in runner, no install required:
+
+```bash
+node --test test/*.test.js
+```
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model and how to report a problem.
+
+## License
+
+MIT. See [LICENSE](LICENSE). That includes the warranty disclaimer: this is provided as is.

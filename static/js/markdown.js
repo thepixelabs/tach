@@ -57,13 +57,48 @@
         codespan({ text }) {
           return '<code class="md-inline-code">' + escapeHtml(text) + '</code>';
         },
-        table({ header, rows }) {
+        table(token) {
+          // marked hands the renderer cell TOKENS, not rendered HTML. Joining
+          // them directly is what produced rows of "[object Object]".
+          const self = this;
+          const cell = (c, tag) => {
+            if (c == null) return '<' + tag + '></' + tag + '>';
+            if (typeof c === 'string') return c;
+            const align = c.align ? ' style="text-align:' + c.align + '"' : '';
+            let inner = '';
+            if (c.tokens && self.parser) inner = self.parser.parseInline(c.tokens);
+            else if (typeof c.text === 'string') inner = escapeHtml(c.text);
+            return '<' + tag + align + '>' + inner + '</' + tag + '>';
+          };
+          const header = Array.isArray(token.header)
+            ? '<tr>' + token.header.map(c => cell(c, 'th')).join('') + '</tr>'
+            : String(token.header || '');
+          const rows = Array.isArray(token.rows)
+            ? token.rows.map(r => '<tr>' + (Array.isArray(r) ? r.map(c => cell(c, 'td')).join('') : '') + '</tr>').join('')
+            : String(token.rows || '');
           return '<div class="md-table-wrap"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
         },
-        link({ href, title, text }) {
-          const safeHref = (/^(javascript|vbscript|data):/i.test((href || '').trim())) ? '#' : href;
+        link({ href, title, text, tokens }) {
+          // `text` is the raw markdown source of the label, not parsed HTML, so
+          // emitting it directly let `[<img onerror=...>](ok)` execute. Parse the
+          // tokens instead, and allowlist the scheme rather than denylisting a
+          // few, after resolving entities so `javascript&#58;` cannot slip past.
+          const raw = (href || '').trim();
+          const probe = raw.replace(/&[#a-z0-9]+;/gi, '');
+          const ok = /^(https?:|mailto:|#|\/|\.{0,2}\/)/i.test(probe);
+          const safeHref = ok ? escapeHtml(raw) : '#';
           const titleAttr = title ? ' title="' + escapeHtml(title) + '"' : '';
-          return '<a href="' + safeHref + '" target="_blank" rel="noopener"' + titleAttr + '>' + text + '</a>';
+          const label = (tokens && this.parser) ? this.parser.parseInline(tokens) : escapeHtml(text || '');
+          return '<a href="' + safeHref + '" target="_blank" rel="noopener"' + titleAttr + '>' + label + '</a>';
+        },
+        image({ href, title, text }) {
+          // Same allowlist for image sources.
+          const raw = (href || '').trim();
+          const probe = raw.replace(/&[#a-z0-9]+;/gi, '');
+          const ok = /^(https?:|#|\/|\.{0,2}\/|data:image\/)/i.test(probe);
+          if (!ok) return escapeHtml(text || '');
+          const titleAttr = title ? ' title="' + escapeHtml(title) + '"' : '';
+          return '<img src="' + escapeHtml(raw) + '" alt="' + escapeHtml(text || '') + '"' + titleAttr + '>';
         }
       };
 

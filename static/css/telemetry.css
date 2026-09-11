@@ -1,5 +1,5 @@
 /* ============================================================
-   Token Telemetry & Model Observatory
+   Tach
    Theme system: every theme owns its own background, surface ramp
    and accent family. Nothing in this stylesheet below the palette
    hardcodes a colour - it all resolves through these tokens, so a
@@ -89,14 +89,14 @@
 :root[data-theme="subtle"]:not([data-mode="light"]),
 :root[data-mode="dark"][data-theme="subtle"] {
   color-scheme: dark;
-  --bg-deep:        #05070D;
-  --bg-dark:        #0A0E18;
-  --bg-sidebar:     #0D121F;
-  --bg-topbar:      rgba(13, 18, 31, 0.88);
-  --bg-panel:       rgba(17, 23, 38, 0.78);
-  --bg-panel-solid: #111726;
-  --bg-card:        rgba(23, 31, 50, 0.68);
-  --bg-card-hover:  rgba(32, 43, 69, 0.88);
+  --bg-deep:        #07080B;
+  --bg-dark:        #191B1E;
+  --bg-sidebar:     #12141A;
+  --bg-topbar:      rgba(18, 20, 26, 0.88);
+  --bg-panel:       rgba(23, 25, 32, 0.78);
+  --bg-panel-solid: #171920;
+  --bg-card:        rgba(30, 34, 43, 0.68);
+  --bg-card-hover:  rgba(42, 47, 59, 0.88);
   --bg-pill:        rgba(255, 255, 255, 0.05);
 
   --text-main:  #F1F5F9;
@@ -125,8 +125,8 @@
   --shadow-rgb:   0, 0, 0;
 
   /* Ambient wash painted behind the app viewport. */
-  --wash-a: rgba(99, 102, 241, 0.10);
-  --wash-b: rgba(34, 184, 240, 0.07);
+  --wash-a: rgba(99, 102, 241, 0.035);
+  --wash-b: rgba(34, 184, 240, 0.025);
 
   --glow-violet: 0 0 18px rgba(99, 102, 241, 0.30);
   --glow-acid:   0 0 16px rgba(16, 185, 129, 0.28);
@@ -137,14 +137,14 @@
 :root[data-theme="neon"]:not([data-mode="light"]),
 :root[data-mode="dark"][data-theme="neon"] {
   color-scheme: dark;
-  --bg-deep:        #07030E;
-  --bg-dark:        #100720;
-  --bg-sidebar:     #150A2B;
-  --bg-topbar:      rgba(21, 10, 43, 0.88);
-  --bg-panel:       rgba(28, 14, 55, 0.78);
-  --bg-panel-solid: #1C0E37;
-  --bg-card:        rgba(36, 18, 68, 0.68);
-  --bg-card-hover:  rgba(50, 25, 92, 0.88);
+  --bg-deep:        #08060B;
+  --bg-dark:        #1F1C25;
+  --bg-sidebar:     #181322;
+  --bg-topbar:      rgba(24, 19, 34, 0.88);
+  --bg-panel:       rgba(32, 25, 44, 0.78);
+  --bg-panel-solid: #20192C;
+  --bg-card:        rgba(40, 32, 54, 0.68);
+  --bg-card-hover:  rgba(55, 43, 74, 0.88);
   --bg-pill:        rgba(255, 255, 255, 0.06);
 
   --text-main:  #F3E9FF;
@@ -172,8 +172,8 @@
   --backdrop-rgb: 6, 2, 12;
   --shadow-rgb:   0, 0, 0;
 
-  --wash-a: rgba(196, 77, 238, 0.18);
-  --wash-b: rgba(0, 240, 255, 0.10);
+  --wash-a: rgba(196, 77, 238, 0.063);
+  --wash-b: rgba(0, 240, 255, 0.035);
 
   --glow-violet: 0 0 22px rgba(196, 77, 238, 0.40);
   --glow-acid:   0 0 18px rgba(57, 255, 20, 0.38);
@@ -184,12 +184,12 @@
 :root[data-theme="solar"]:not([data-mode="light"]),
 :root[data-mode="dark"][data-theme="solar"] {
   color-scheme: dark;
-  --bg-deep:        #080705;
-  --bg-dark:        #12100B;
-  --bg-sidebar:     #1A1710;
-  --bg-topbar:      rgba(26, 23, 16, 0.90);
-  --bg-panel:       rgba(33, 29, 20, 0.86);
-  --bg-panel-solid: #211D14;
+  --bg-deep:        #070706;
+  --bg-dark:        #1C1B19;
+  --bg-sidebar:     #171613;
+  --bg-topbar:      rgba(23, 22, 19, 0.90);
+  --bg-panel:       rgba(29, 28, 24, 0.86);
+  --bg-panel-solid: #1D1C18;
   --bg-card:        #262218;
   --bg-card-hover:  #332D20;
   --bg-pill:        rgba(255, 255, 255, 0.06);
@@ -219,8 +219,8 @@
   --backdrop-rgb: 5, 4, 2;
   --shadow-rgb:   0, 0, 0;
 
-  --wash-a: rgba(226, 183, 20, 0.12);
-  --wash-b: rgba(251, 146, 60, 0.07);
+  --wash-a: rgba(226, 183, 20, 0.042);
+  --wash-b: rgba(251, 146, 60, 0.025);
 
   --glow-violet: 0 0 18px rgba(226, 183, 20, 0.32);
   --glow-acid:   0 0 16px rgba(74, 222, 128, 0.28);
@@ -238,12 +238,12 @@
 :root[data-mode="light"],
 :root[data-mode="light"][data-theme="subtle"] {
   color-scheme: light;
-  --bg-deep:        #AEBACB; /* deepest ground, behind the shell */
-  --bg-dark:        #BFC9D9; /* app background - clearly tinted, never white */
-  --bg-sidebar:     #CBD4E1;
-  --bg-topbar:      rgba(203, 212, 225, 0.94);
+  --bg-deep:        #B6BBC3; /* deepest ground, behind the shell */
+  --bg-dark:        #CFD1D4; /* app background - clearly tinted, never white */
+  --bg-sidebar:     #D1D5DB;
+  --bg-topbar:      rgba(209, 213, 219, 0.94);
   --bg-panel:       #D7DEEA; /* raised panel surface */
-  --bg-panel-solid: #D7DEEA;
+  --bg-panel-solid: #DCDFE5;
   --bg-card:        #CDD6E4;
   --bg-card-hover:  #BFC9D9;
   --bg-pill:        rgba(30, 41, 59, 0.07);
@@ -273,8 +273,8 @@
   --backdrop-rgb: 40, 48, 66;
   --shadow-rgb:   30, 41, 59;
 
-  --wash-a: rgba(67, 56, 202, 0.10);
-  --wash-b: rgba(3, 105, 161, 0.08);
+  --wash-a: rgba(67, 56, 202, 0.035);
+  --wash-b: rgba(3, 105, 161, 0.028);
 
   --glow-violet: 0 4px 18px rgba(67, 56, 202, 0.22);
   --glow-acid:   0 4px 16px rgba(4, 120, 87, 0.20);
@@ -284,12 +284,12 @@
 /* 5. Cyber Neon - lilac paper with a violet cast */
 :root[data-mode="light"][data-theme="neon"] {
   color-scheme: light;
-  --bg-deep:        #B69CC3;
-  --bg-dark:        #C8B0D4;
-  --bg-sidebar:     #D3BEDE;
-  --bg-topbar:      rgba(211, 190, 222, 0.94);
+  --bg-deep:        #B2A7B8;
+  --bg-dark:        #CBC6CD;
+  --bg-sidebar:     #D0C7D5;
+  --bg-topbar:      rgba(208, 199, 213, 0.94);
   --bg-panel:       #E0CEE9;
-  --bg-panel-solid: #E0CEE9;
+  --bg-panel-solid: #DED5E2;
   --bg-card:        #D7C2E2;
   --bg-card-hover:  #C8B0D4;
   --bg-pill:        rgba(59, 26, 74, 0.08);
@@ -319,8 +319,8 @@
   --backdrop-rgb: 45, 20, 60;
   --shadow-rgb:   59, 26, 74;
 
-  --wash-a: rgba(126, 34, 206, 0.14);
-  --wash-b: rgba(14, 116, 144, 0.09);
+  --wash-a: rgba(126, 34, 206, 0.049);
+  --wash-b: rgba(14, 116, 144, 0.032);
 
   --glow-violet: 0 4px 20px rgba(126, 34, 206, 0.26);
   --glow-acid:   0 4px 16px rgba(21, 128, 61, 0.20);
@@ -330,12 +330,12 @@
 /* 6. Solar Monochrome - golden sand parchment */
 :root[data-mode="light"][data-theme="solar"] {
   color-scheme: light;
-  --bg-deep:        #BEA877;
-  --bg-dark:        #D3C296;
-  --bg-sidebar:     #DDCEA8;
-  --bg-topbar:      rgba(221, 206, 168, 0.94);
+  --bg-deep:        #AAA18B;
+  --bg-dark:        #C4C1B8;
+  --bg-sidebar:     #CEC8B7;
+  --bg-topbar:      rgba(206, 200, 183, 0.94);
   --bg-panel:       #E8DCBB;
-  --bg-panel-solid: #E8DCBB;
+  --bg-panel-solid: #DCD6C7;
   --bg-card:        #E0D2AC;
   --bg-card-hover:  #D3C296;
   --bg-pill:        rgba(69, 52, 20, 0.08);
@@ -365,8 +365,8 @@
   --backdrop-rgb: 56, 42, 14;
   --shadow-rgb:   69, 52, 20;
 
-  --wash-a: rgba(161, 98, 7, 0.14);
-  --wash-b: rgba(194, 65, 12, 0.08);
+  --wash-a: rgba(161, 98, 7, 0.049);
+  --wash-b: rgba(194, 65, 12, 0.028);
 
   --glow-violet: 0 4px 18px rgba(161, 98, 7, 0.24);
   --glow-acid:   0 4px 16px rgba(21, 128, 61, 0.20);
@@ -377,12 +377,12 @@
 :root[data-theme="light"]:not([data-mode="dark"]),
 :root[data-mode="light"][data-theme="light"] {
   color-scheme: light;
-  --bg-deep:        #B4AB99;
-  --bg-dark:        #C8BFAC;
-  --bg-sidebar:     #D4CBB9;
-  --bg-topbar:      rgba(212, 203, 185, 0.94);
+  --bg-deep:        #ADA9A0;
+  --bg-dark:        #C5C3BF;
+  --bg-sidebar:     #CDC9C0;
+  --bg-topbar:      rgba(205, 201, 192, 0.94);
   --bg-panel:       #E1D9C9;
-  --bg-panel-solid: #E1D9C9;
+  --bg-panel-solid: #DAD7D0;
   --bg-card:        #D9D0BE;
   --bg-card-hover:  #C8BFAC;
   --bg-pill:        rgba(41, 37, 28, 0.07);
@@ -412,8 +412,8 @@
   --backdrop-rgb: 41, 37, 28;
   --shadow-rgb:   41, 37, 28;
 
-  --wash-a: rgba(67, 56, 202, 0.09);
-  --wash-b: rgba(180, 83, 9, 0.08);
+  --wash-a: rgba(67, 56, 202, 0.032);
+  --wash-b: rgba(180, 83, 9, 0.028);
 
   --glow-violet: 0 4px 16px rgba(67, 56, 202, 0.18);
   --glow-acid:   0 4px 14px rgba(4, 120, 87, 0.18);
@@ -765,11 +765,15 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 }
 
 .server-meta {
+  /* Name and port read as one label, so they sit on one line rather than
+     stacking the port underneath like a second field. */
   flex: 1;
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 0.4rem;
   line-height: 1.15;
   overflow: hidden;
+  min-width: 0;
 }
 
 .server-meta .source-name {
@@ -3437,8 +3441,10 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-sub);
-  padding: 0.45rem 0.55rem 0.3rem;
+  /* The accent marks a heading as structure. Items stay plain text, so the
+     difference between a label and something clickable is colour, not weight. */
+  color: var(--accent-primary);
+  padding: 0.9rem 0.55rem 0.35rem;
   cursor: default;
 }
 
@@ -3473,9 +3479,9 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   border-radius: var(--radius-sm);
   background: transparent;
   border: 1px solid transparent;
-  color: var(--text-sub);
+  color: var(--text-main);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 500;
   text-align: start;
   cursor: pointer;
@@ -4001,3 +4007,93 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
 }
 
 .sidebar-source-item[disabled] { cursor: not-allowed; opacity: 0.45; }
+
+/* ============================================================
+   Icons
+   Lucide glyphs inherit currentColor, so they tone with the theme
+   instead of sitting on top of it the way the old emoji did.
+   ============================================================ */
+.ic {
+  width: 1em; height: 1em;
+  display: inline-block;
+  vertical-align: -0.135em;
+  flex: none;
+  stroke-width: 1.8;
+}
+[data-ic] { display: inline-flex; align-items: center; }
+[data-ic] .ic { width: 1.05em; height: 1.05em; }
+
+.brand-badge .ic { width: 20px; height: 20px; vertical-align: 0; }
+.source-icon .ic { width: 15px; height: 15px; opacity: .85; }
+.panel-icon .ic  { width: 16px; height: 16px; color: var(--accent-primary); }
+.gallery-card-icon .ic { width: 22px; height: 22px; color: var(--accent-primary); }
+.navgroup__list .ic { width: 16px; height: 16px; }
+
+/* Appearance control in the sidebar foot: light / dark / match system. */
+.mode-seg {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 2px; padding: 3px;
+  border: 1px solid var(--line-2); border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.mode-seg__btn {
+  display: grid; place-items: center;
+  height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: color var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
+}
+.mode-seg__btn:hover { color: var(--text-main); }
+.mode-seg__btn.active { background: var(--accent-primary); color: var(--text-on-accent); }
+.mode-seg__btn .ic { width: 15px; height: 15px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Engine selector on the Engines page. */
+.engine-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.engine-tab {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line-2); border-radius: 99px;
+  background: var(--surface-1); color: var(--text-sub);
+  font-family: inherit; font-size: 0.78rem; cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+.engine-tab:hover { color: var(--text-main); border-color: var(--line-3); }
+.engine-tab.active {
+  background: var(--tint-primary); border-color: var(--border-primary); color: var(--text-main);
+}
+
+/* Engine groups: each server owns its cards rather than everything being
+   tipped into one grid. */
+.engine-group { margin-bottom: 1.6rem; }
+.engine-group__head {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0 0.15rem 0.6rem;
+  border-bottom: 1px solid var(--line-1);
+  margin-bottom: 0.85rem;
+}
+.engine-group__icon { display: inline-flex; color: var(--accent-primary); }
+.engine-group__icon .ic { width: 17px; height: 17px; }
+.engine-group__name { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--text-main); }
+.engine-group__port { font-size: 0.7rem; color: var(--text-muted); margin-right: auto; }
+.panel-note { margin: 0.7rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
+
+/* Collapsing an engine group. The state is stored per workspace, so a server
+   you never look at stays shut between visits. */
+.engine-group__toggle {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), transform var(--motion-base) var(--ease-out);
+}
+.engine-group__toggle:hover { color: var(--text-main); }
+.engine-group__toggle .ic { width: 15px; height: 15px; }
+.engine-group.is-collapsed .engine-group__toggle { transform: rotate(-90deg); }
+.engine-group.is-collapsed .engine-group__body { display: none; }
+.engine-group.is-collapsed .engine-group__head { border-bottom-color: transparent; margin-bottom: 0; }
+.engine-group__count { font-size: 0.68rem; color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .engine-group__toggle { transition: none; } }

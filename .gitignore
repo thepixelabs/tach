@@ -34,3 +34,31 @@ ENV/
 .vscode/
 *.swp
 *.swo
+
+# Agent transcripts. Tach reads these; committing one would publish a session.
+.aider*
+.claude/
+.cursor/
+.continue/
+.openclaw/
+
+# Build and tooling
+node_modules/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor and merge leftovers
+*.bak
+*.orig
+*.rej
+*.swp
+
+# SQLite sidecars (the *.db rule above misses these)
+*.db-wal
+*.db-shm
+*.sqlite-journal

@@ -145,7 +145,7 @@ function applyRoute() {
 
   renderNav();
   renderToolbar(pageId);
-  document.title = def.title ? `${def.title} · Token Telemetry` : 'Token Telemetry';
+  document.title = def.title ? `${def.title} · Tach` : 'Tach';
 }
 
 // Re-run the active page's refresh. Theme and mode changes route through here
@@ -176,7 +176,7 @@ function renderNav() {
                 aria-label="${escapeHtml(p.title)}"
                 ${state.activePage === p.id ? 'aria-current="page"' : ''}
                 onclick="navigateTo('${p.id}')">
-          <span class="navitem__icon" aria-hidden="true">${p.icon || ''}</span>
+          <span class="navitem__icon" aria-hidden="true">${typeof icon === 'function' ? icon(p.icon) : ''}</span>
           <span class="navitem__label">${escapeHtml(p.title)}</span>
           ${p.count != null ? `<span class="navitem__count mono">${p.count}</span>` : ''}
         </button>
