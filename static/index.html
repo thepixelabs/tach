@@ -34,12 +34,12 @@
         </nav>
 
         <details class="navgroup navgroup--collapsible" id="groupSources" open>
-          <summary class="navgroup__title">Data sources</summary>
+          <summary class="navgroup__title">Data sources <button class="info-tip" type="button" aria-label="About data sources" data-tip="Apps whose conversation history Tach reads from disk. The number is how many sessions each has recorded. Greyed-out entries were found on this machine, but Tach cannot read their format yet."><span data-ic="info"></span></button></summary>
           <div class="sidebar-source-list" id="sidebarSourceList"></div>
         </details>
 
         <details class="navgroup navgroup--collapsible" id="groupServers" open>
-          <summary class="navgroup__title">Local servers</summary>
+          <summary class="navgroup__title">Local servers <button class="info-tip" type="button" aria-label="About local servers" data-tip="Model servers and gateways running on this machine, found by checking which processes are listening on which ports. Online means the server answered just now."><span data-ic="info"></span></button></summary>
           <div class="sidebar-server-list" id="sidebarServerList"></div>
         </details>
       </div>
@@ -178,13 +178,13 @@
             </button>
 
             <button class="theme-card" data-theme="light" onclick="applyTheme('light')">
-              <div class="theme-card-preview" style="--pv-dark:#C8BFAC;--pv-light:#C8BFAC;">
-                <span class="preview-dot" style="background:#4338CA;"></span>
-                <span class="preview-dot" style="background:#0369A1;"></span>
-                <span class="preview-dot" style="background:#047857;"></span>
+              <div class="theme-card-preview" style="--pv-dark:#1B1511;--pv-light:#EADFC9;">
+                <span class="preview-dot" style="background:#C8603A;"></span>
+                <span class="preview-dot" style="background:#2E8C84;"></span>
+                <span class="preview-dot" style="background:#C99A2E;"></span>
               </div>
               <div class="theme-card-title">Creamy Studio</div>
-              <div class="theme-card-desc">Warm creamy minimalist tone with soft contrast and indigo accents.</div>
+              <div class="theme-card-desc">Cream paper and espresso, with terracotta, teal and mustard accents.</div>
             </button>
 
             <button class="theme-card" data-theme="solar" onclick="applyTheme('solar')">
@@ -209,10 +209,22 @@
           </div>
         </div>
 
+        <div class="settings-section">
+          <div class="settings-section-label mono">INFO ICONS</div>
+          <p class="settings-hint">
+            The <span data-ic="info"></span> on each card explains what it shows and where the numbers come from.
+            Hide them once you know your way around.
+          </p>
+          <div class="mode-button-group">
+            <button class="mode-btn info-tips-btn active" data-tips="on" aria-pressed="true" onclick="setInfoTips(true)"><span data-ic="info"></span> Show</button>
+            <button class="mode-btn info-tips-btn" data-tips="off" aria-pressed="false" onclick="setInfoTips(false)"><span data-ic="close"></span> Hide</button>
+          </div>
+        </div>
+
         <!-- System & Local Harness Information -->
         <div class="settings-section">
           <div class="settings-section-label mono settings-label-row">
-            <span>DETECTED APPS &amp; SERVERS</span>
+            <span>DETECTED APPS &amp; SERVERS <button class="info-tip" type="button" aria-label="About detected apps and servers" data-tip="Everything Tach looked for on this machine. Data sources are found by their files on disk; servers by the process listening on a port, then confirmed by asking the server itself."><span data-ic="info"></span></button></span>
             <span class="settings-label-actions">
               <span class="mono catalog-stamp" id="catalogStamp"></span>
               <button class="btn btn--ghost btn--sm" type="button" id="btnRescan" onclick="rescanCatalog()">Rescan now</button>
@@ -226,7 +238,22 @@
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-label mono">TELEMETRY SOURCES & PATHS</div>
+          <div class="settings-section-label mono">SERVER PORTS <button class="info-tip" type="button" aria-label="About server ports" data-tip="Ports you pin here are always checked for that engine, before any found by scanning. Use this for a server Tach cannot recognise by its process name."><span data-ic="info"></span></button></div>
+          <p class="settings-hint">
+            MLX, Ollama, llama.cpp, vLLM and SGLang are found on any port by the process listening on it.
+            Pin a port here for a server the scan cannot name, such as one behind a proxy or launched from a
+            custom script. Saved to <span class="mono" id="configPath">~/.config/tach/config.json</span>.
+          </p>
+          <div id="portOverrides"></div>
+          <form class="port-form" onsubmit="addPortOverride(event)">
+            <select class="custom-select" id="portEngine" aria-label="Engine"></select>
+            <input class="dt-input" id="portValue" type="number" min="1" max="65535" placeholder="8081" aria-label="Port" required>
+            <button class="btn btn--ghost btn--sm" type="submit">Add port</button>
+          </form>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-label mono">TELEMETRY SOURCES &amp; PATHS <button class="info-tip" type="button" aria-label="About telemetry sources" data-tip="The database and transcript files Tach reads. Everything is opened read-only; Tach never writes to another app&#x27;s data."><span data-ic="info"></span></button></div>
           <div class="system-info-list" id="settingsSystemInfo">
             <div class="sys-info-row">
               <span class="sys-lbl mono">OpenCode DB</span>

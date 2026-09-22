@@ -373,51 +373,99 @@
   --glow-pink:   0 4px 16px rgba(162, 28, 175, 0.20);
 }
 
-/* 7. Creamy Studio - warm neutral linen */
+/* 7. Creamy Studio - an artist's studio: cream paper, terracotta and teal.
+   Warm where Subtle Slate is cool, and it has its own dark mode (espresso
+   ground) rather than falling back to Slate's. Text and accents clear
+   WCAG AA (4.5:1) against the ground, panel and card surfaces. */
 :root[data-theme="light"]:not([data-mode="dark"]),
 :root[data-mode="light"][data-theme="light"] {
   color-scheme: light;
-  --bg-deep:        #ADA9A0;
-  --bg-dark:        #C5C3BF;
-  --bg-sidebar:     #CDC9C0;
-  --bg-topbar:      rgba(205, 201, 192, 0.94);
-  --bg-panel:       #E1D9C9;
-  --bg-panel-solid: #DAD7D0;
-  --bg-card:        #D9D0BE;
-  --bg-card-hover:  #C8BFAC;
-  --bg-pill:        rgba(41, 37, 28, 0.07);
+  --bg-deep:        #D8C8AA;
+  --bg-dark:        #EADFC9;
+  --bg-sidebar:     #E3D5BA;
+  --bg-topbar:      rgba(234, 223, 201, 0.94);
+  --bg-panel:       #F4ECDC;
+  --bg-panel-solid: #F4ECDC;
+  --bg-card:        #EFE4CF;
+  --bg-card-hover:  #E6D8BD;
+  --bg-pill:        rgba(90, 55, 30, 0.08);
 
-  --text-main:  #1A1710;
-  --text-sub:   #46402F;
-  --text-muted: #6D6551;
+  --text-main:  #2B1D12;
+  --text-sub:   #5B4535;
+  --text-muted: #6C5743;
   --text-on-accent: #FFFFFF;
 
-  --accent-primary:       #4338CA;
-  --accent-primary-hover: #372FA8;
-  --accent-secondary:     #0369A1;
-  --accent-success:       #047857;
-  --accent-warning:       #B45309;
-  --accent-danger:        #B91C1C;
-  --accent-pink:          #BE185D;
+  --accent-primary:       #A8431F;  /* terracotta */
+  --accent-primary-hover: #8E3616;
+  --accent-secondary:     #1C6B66;  /* deep teal */
+  --accent-success:       #3D6A1C;  /* olive */
+  --accent-warning:       #855307;  /* ochre */
+  --accent-danger:        #A8173F;  /* crimson, clear of the terracotta */
+  --accent-pink:          #963A68;  /* plum */
 
-  --accent-primary-rgb:   67, 56, 202;
-  --accent-secondary-rgb: 3, 105, 161;
-  --accent-success-rgb:   4, 120, 87;
-  --accent-warning-rgb:   180, 83, 9;
-  --accent-danger-rgb:    185, 28, 28;
-  --accent-pink-rgb:      190, 24, 93;
+  --accent-primary-rgb:   168, 67, 31;
+  --accent-secondary-rgb: 28, 107, 102;
+  --accent-success-rgb:   61, 106, 28;
+  --accent-warning-rgb:   133, 83, 7;
+  --accent-danger-rgb:    168, 23, 63;
+  --accent-pink-rgb:      150, 58, 104;
 
-  --shade-rgb:    41, 37, 28;
-  --scrim-rgb:    225, 217, 201;
-  --backdrop-rgb: 41, 37, 28;
-  --shadow-rgb:   41, 37, 28;
+  --shade-rgb:    74, 44, 22;
+  --scrim-rgb:    244, 236, 220;
+  --backdrop-rgb: 58, 38, 22;
+  --shadow-rgb:   74, 44, 22;
 
-  --wash-a: rgba(67, 56, 202, 0.032);
-  --wash-b: rgba(180, 83, 9, 0.028);
+  --wash-a: rgba(168, 67, 31, 0.06);
+  --wash-b: rgba(28, 107, 102, 0.045);
 
-  --glow-violet: 0 4px 16px rgba(67, 56, 202, 0.18);
-  --glow-acid:   0 4px 14px rgba(4, 120, 87, 0.18);
-  --glow-pink:   0 4px 14px rgba(190, 24, 93, 0.18);
+  --glow-violet: 0 4px 18px rgba(168, 67, 31, 0.20);
+  --glow-acid:   0 4px 14px rgba(61, 106, 28, 0.18);
+  --glow-pink:   0 4px 14px rgba(150, 58, 104, 0.18);
+}
+
+:root[data-mode="dark"][data-theme="light"] {
+  color-scheme: dark;
+  --bg-deep:        #0F0B08;
+  --bg-dark:        #1B1511;
+  --bg-sidebar:     #16110D;
+  --bg-topbar:      rgba(22, 17, 13, 0.90);
+  --bg-panel:       rgba(38, 29, 23, 0.82);
+  --bg-panel-solid: #261D17;
+  --bg-card:        rgba(46, 36, 28, 0.72);
+  --bg-card-hover:  rgba(62, 48, 37, 0.90);
+  --bg-pill:        rgba(246, 236, 221, 0.06);
+
+  --text-main:  #F6ECDD;
+  --text-sub:   #C9B69E;
+  --text-muted: #998670;
+  --text-on-accent: #1B1511;
+
+  --accent-primary:       #EC8A62;  /* apricot terracotta */
+  --accent-primary-hover: #F4A583;
+  --accent-secondary:     #63BDB1;  /* sea-glass teal */
+  --accent-success:       #A3C972;  /* sage */
+  --accent-warning:       #E8BC52;  /* mustard */
+  --accent-danger:        #F2607A;  /* rose red, clear of the apricot */
+  --accent-pink:          #E283A6;
+
+  --accent-primary-rgb:   236, 138, 98;
+  --accent-secondary-rgb: 99, 189, 177;
+  --accent-success-rgb:   163, 201, 114;
+  --accent-warning-rgb:   232, 188, 82;
+  --accent-danger-rgb:    242, 96, 122;
+  --accent-pink-rgb:      226, 131, 166;
+
+  --shade-rgb:    255, 240, 220;
+  --scrim-rgb:    27, 21, 17;
+  --backdrop-rgb: 10, 7, 5;
+  --shadow-rgb:   0, 0, 0;
+
+  --wash-a: rgba(236, 138, 98, 0.055);
+  --wash-b: rgba(99, 189, 177, 0.035);
+
+  --glow-violet: 0 0 18px rgba(236, 138, 98, 0.30);
+  --glow-acid:   0 0 16px rgba(163, 201, 114, 0.26);
+  --glow-pink:   0 0 16px rgba(226, 131, 166, 0.26);
 }
 
 /* ------------------------------------------------------------
@@ -3989,6 +4037,121 @@ h1, h2, h3, .brand-title, .dashboard-section-title, .panel-title-wrap, .views-la
   margin-block: 0.35rem 0.75rem;
   max-inline-size: 68ch;
 }
+
+/* Info tips: a small "i" beside a card title. The popover is one element on
+   <body> so card overflow cannot clip it. Hidden entirely when switched off. */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  padding: 0;
+  margin-inline-start: 0.2rem;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-sub);
+  opacity: 0.7;
+  cursor: help;
+  vertical-align: middle;
+  flex: none;
+}
+.info-tip .ic { inline-size: 14px; block-size: 14px; }
+.info-tip:hover, .info-tip:focus-visible, .info-tip[aria-describedby] { opacity: 1; color: var(--accent-primary); }
+.info-tip:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+/* Keep the touch target usable without growing the visible icon. */
+@media (pointer: coarse) { .info-tip { inline-size: 28px; block-size: 28px; margin-block: -5px; } }
+.info-tip--corner { position: absolute; inset-block-start: 0.45rem; inset-inline-end: 0.45rem; margin: 0; }
+.stat { position: relative; }
+.navgroup__title .info-tip, .settings-section-label .info-tip { text-transform: none; letter-spacing: 0; }
+.navgroup__title .info-tip .ic, .settings-section-label .info-tip .ic { inline-size: 12px; block-size: 12px; }
+html[data-info-tips="off"] .info-tip { display: none; }
+
+.info-pop {
+  position: fixed;
+  z-index: 10000;
+  max-inline-size: 320px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-main);
+  background: var(--bg-panel-solid);
+  border: 1px solid var(--border-active, var(--border-subtle));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+.info-pop.visible { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .info-pop { transition: none; } }
+
+/* Live details: label/value pairs an engine reported. */
+.facts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin: 0;
+}
+.facts-grid__item dt { font-size: 0.68rem; color: var(--text-sub); margin-block-end: 0.15rem; }
+.facts-grid__item dd { margin: 0; font-size: 0.85rem; color: var(--text-main); overflow-wrap: anywhere; }
+
+/* Says when the time window does not (fully) apply to a panel. */
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-inline-start: 0.35rem;
+  padding: 0.12rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px dashed var(--line-3);
+  color: var(--text-sub);
+  cursor: help;
+}
+.scope-badge .ic { inline-size: 11px; block-size: 11px; }
+.scope-badge[data-scope="recent"] { border-style: solid; border-color: var(--border-secondary); color: var(--accent-secondary); }
+
+/* Second line inside a table cell. */
+.cell-sub { font-size: 0.68rem; color: var(--text-sub); margin-block-start: 0.15rem; }
+
+/* Pinned server ports in Settings. */
+.port-override {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-block-end: 0.5rem;
+}
+.port-override__name { font-size: 0.8rem; color: var(--text-main); min-inline-size: 8rem; }
+.port-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.2rem 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+}
+.port-chip button {
+  border: 0;
+  background: none;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+.port-chip button:hover { color: var(--text-main); }
+.port-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-block-start: 0.5rem; }
+.port-form .dt-input { inline-size: 6.5rem; }
 
 /* An app that was looked for and not found stays listed but recedes, so it is
    clear what was checked rather than silently omitted. */

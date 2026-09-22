@@ -189,6 +189,172 @@ function archetypeLimits(panelId) {
 // ============================================================
 // PANEL REGISTRY - Scientific Observability Panels
 // ============================================================
+// ============================================================
+// INFO TIPS
+// The "i" on a card says what the card shows, where the numbers come from and
+// how to read them. It can be switched off in Settings; the preference lives
+// on <html data-info-tips>, so hiding them is a stylesheet rule, not a
+// re-render of every card.
+// ============================================================
+
+const PANEL_INFO = {
+  'coverage-strip': 'What the dashboards are built from: root sessions, subagent sessions, turns and days with any activity. "Turns without a speed sample" recorded no timing, so they are left out of speed charts. Source: session transcripts from every detected data source, in the selected time window.',
+  'turn-time-budget': 'Where agent wall-clock time goes on each turn: running tools, reasoning, and the model reading and writing tokens. A large tool share means the agent is waiting on commands, not on the model. Source: turn timestamps and tool-call durations in session transcripts.',
+  'decode-distribution': 'Per-turn decode speed (output tokens divided by generation time) at the median, p90, p99 and peak. The median is what a typical turn feels like; the peak is a best case. Source: session transcripts; turns without timing are skipped.',
+  'outcome-ledger': 'How turns ended, by the finish reason each transcript recorded: tool-calls (handed off to a tool), stop (answered), incomplete (cut off, usually because you stopped it). The note counts turns you killed and provider errors; a rising kill rate usually means the agent is going off track.',
+  'context-economics': 'Peak context is the largest single prompt sent. Billed input adds up every prompt, so context re-sent on each turn counts again. A big gap between the two means context is being paid for repeatedly; prefix caching reduces that. Source: per-turn token counts in session transcripts.',
+  'cache-savings': 'Share of input tokens served from the prompt cache instead of being processed again. Higher is better: cached tokens skip prefill. Source: cache-read token counts recorded per turn.',
+  'tool-reliability': 'Every tool the agent called, with call count, error rate and latency percentiles. Look for high error rates to find flaky tools. Source: tool calls and their results in session transcripts.',
+  'long-poles': 'The individual tool calls that took the longest wall-clock time, such as slow builds, test runs or network calls. Source: tool-call start and end times in session transcripts.',
+  'model-matrix': 'Each model you used, compared on decode speed, cache reuse, error rate and context size. Use it to pick a model for a kind of task. Source: turns grouped by the model recorded in each transcript.',
+  'projects-leaderboard': 'Sessions, turns and generated tokens grouped by project, as the agent recorded it rather than by folder name. Source: the project field in session transcripts.',
+  'file-churn': 'Files the agent edited most often. Repeated edits to the same file often mean the agent is struggling with it. Source: edit and write tool calls, counted by file path.',
+  'kpi-banner': 'Headline numbers for the selected window: median decode speed, total agent wall-clock time, tokens generated, the largest context carried, and session count. Source: session transcripts from every detected data source.',
+  'telemetry-table': 'The last 20 requests the MLX server completed, with time to first token, prefill and decode speed, and peak memory. Source: the MLX server\'s /metrics endpoint, polled every few seconds.',
+  'speculative-burst': 'Median and peak decode speed next to peak prefill speed across recent MLX requests. Prefill reads the prompt in parallel, so it is naturally far faster than decode. Source: the MLX /metrics request history.',
+  'prefill-vs-decode': 'Prefill is how fast the prompt is read in; decode is how fast new tokens are written. Long prompts are limited by prefill, long answers by decode. Source: the latest request in MLX /metrics.',
+  'ttft-latency': 'Time to first token for recent MLX requests: the wait before any output appears. It grows with prompt length and drops when the start of the prompt is already cached. Source: MLX /metrics.',
+  'decode-acceleration': 'Decode speed over the first 32 and the last 32 tokens of the latest request. With speculative decoding (MTP) the two differ as drafting warms up; very long contexts also slow the tail. Source: MLX /metrics sliding-window rates.',
+  'apc-cache': 'The MLX server\'s automatic prefix cache: how much of each prompt was reused from an earlier request instead of recomputed. Only shown when the server reports cache statistics. Source: MLX /metrics.',
+  'tps-trend': 'Average and peak decode speed over time. A slowdown after a model or settings change shows up here first. Source: session transcripts, grouped into time buckets.',
+  'speed-distribution': 'How many turns fell into each decode-speed band. Source: per-turn speed from session transcripts.',
+  'model-share': 'Share of generated tokens by model. Source: output token counts per turn in session transcripts.',
+  'tool-usage': 'Which tools the agent calls most: read, bash, edit, MCP tools and so on. Source: tool calls in session transcripts.',
+  'token-volume': 'Tokens per day, split into input (prompt) and output (generated). Source: per-turn token counts in session transcripts.',
+  'hermes-activity': 'What Hermes is doing now: open sessions, whether a turn is running, which model and local engine each session calls, and gateway health. Source: files Hermes keeps current in ~/.hermes (gateway heartbeat, active-session list, state.db), read-only.',
+  'engine-facts': 'Everything this engine reports about itself right now, read from its own documented endpoints: for example vLLM and SGLang /metrics, llama.cpp /props and /slots, KoboldCpp /api/extra/perf, LM Studio /api/v1/models, LocalAI /system. The note says what to switch on in the engine for more.',
+  'engine-inventory': 'Models this server has available, with size, parameters, quantisation and context where the server reports them. Models loaded in memory now are marked. Source: the server\'s own model-list API.',
+  'live-pulse': 'One card per local engine: whether it is running and what it is doing now, such as current speed or loaded model. Source: each engine\'s local API, polled every few seconds.',
+  'duration-distribution': 'How long sessions ran, from quick questions to long working sessions. Source: first and last message times in session transcripts.',
+  'top-workspaces': 'Output tokens and session counts by working folder. Source: the working directory recorded with each session.',
+  'sessions-explorer': 'Every recorded session, with search and filters by harness, folder, model and speed. Open a session to see its turns. Source: session transcripts from every detected data source.',
+};
+
+function infoTip(text, label, cls) {
+  if (!text) return '';
+  return `<button class="info-tip${cls ? ' ' + cls : ''}" type="button" aria-label="About ${escapeHtml(label || 'this card')}"`
+    + ` data-tip="${escapeHtml(text)}">${icon('info')}</button>`;
+}
+
+// What the time window does to each panel. Unlisted panels are fully
+// filtered. "live" panels show current state, so the window cannot apply;
+// "recent" ones are filtered, but only from the engine's short history.
+const PANEL_SCOPE = {
+  'live-pulse': 'live', 'engine-inventory': 'live', 'engine-facts': 'live',
+  'hermes-activity': 'live', 'prefill-vs-decode': 'live', 'decode-acceleration': 'live',
+  'apc-cache': 'live',
+  'telemetry-table': 'recent', 'speculative-burst': 'recent', 'ttft-latency': 'recent',
+};
+
+function scopeBadge(id) {
+  const scope = PANEL_SCOPE[id];
+  if (scope === 'live') {
+    return '<span class="scope-badge" data-scope="live" title="Shows the current state of a running server. The time window above does not apply.">'
+      + icon('broadcast') + 'Live \u00B7 not filtered</span>';
+  }
+  if (scope === 'recent') {
+    return '<span class="scope-badge" data-scope="recent" title="Filtered by the time window, but MLX keeps only its last 20 requests, so older activity is not available here.">'
+      + icon('clock') + 'Last 20 requests</span>';
+  }
+  return '';
+}
+
+function panelInfo(id) {
+  const def = PANEL_REGISTRY[id] || {};
+  return PANEL_INFO[id] || def.description || '';
+}
+
+function applyInfoTips(on) {
+  document.documentElement.setAttribute('data-info-tips', on ? 'on' : 'off');
+  document.querySelectorAll('.info-tips-btn').forEach(btn => {
+    const active = (btn.dataset.tips === 'on') === on;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  });
+  if (!on) hideInfoPop();
+}
+
+function setInfoTips(on) {
+  if (state.workspace) {
+    state.workspace.prefs.infoTips = on;
+    saveWorkspace(null, state.workspace);
+  }
+  applyInfoTips(on);
+}
+
+// One floating popover for every tip, positioned against the viewport so a
+// card's overflow cannot clip it.
+let infoPopAnchor = null;
+let infoPopPinned = false;
+
+function showInfoPop(btn) {
+  let pop = document.getElementById('infoPop');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'infoPop';
+    pop.className = 'info-pop';
+    pop.setAttribute('role', 'tooltip');
+    document.body.appendChild(pop);
+  }
+  pop.textContent = btn.getAttribute('data-tip') || '';
+  pop.classList.add('visible');
+  infoPopAnchor = btn;
+  btn.setAttribute('aria-describedby', 'infoPop');
+
+  const r = btn.getBoundingClientRect();
+  const margin = 12;
+  const w = Math.min(320, window.innerWidth - margin * 2);
+  pop.style.maxWidth = w + 'px';
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let left = Math.min(Math.max(margin, r.left + r.width / 2 - pw / 2), window.innerWidth - pw - margin);
+  let top = r.bottom + 8;
+  if (top + ph > window.innerHeight - margin) top = Math.max(margin, r.top - ph - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+function hideInfoPop() {
+  const pop = document.getElementById('infoPop');
+  if (pop) pop.classList.remove('visible');
+  if (infoPopAnchor) infoPopAnchor.removeAttribute('aria-describedby');
+  infoPopAnchor = null;
+  infoPopPinned = false;
+}
+
+document.addEventListener('mouseover', e => {
+  const btn = e.target.closest && e.target.closest('.info-tip');
+  if (btn && !infoPopPinned) showInfoPop(btn);
+  // Live polling re-renders cards, which can remove the icon under the
+  // pointer without a mouseout; any move off an icon closes an unpinned tip.
+  else if (!btn && infoPopAnchor && !infoPopPinned) hideInfoPop();
+});
+document.addEventListener('mouseout', e => {
+  const btn = e.target.closest && e.target.closest('.info-tip');
+  if (btn && !infoPopPinned && !btn.contains(e.relatedTarget)) hideInfoPop();
+});
+document.addEventListener('focusin', e => {
+  if (e.target.classList && e.target.classList.contains('info-tip')) showInfoPop(e.target);
+});
+document.addEventListener('focusout', e => {
+  if (e.target.classList && e.target.classList.contains('info-tip') && !infoPopPinned) hideInfoPop();
+});
+// Click pins the tip open (the only way on touch), and must not also trigger
+// the card or <summary> it sits in.
+document.addEventListener('click', e => {
+  const btn = e.target.closest && e.target.closest('.info-tip');
+  if (btn) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (infoPopPinned && infoPopAnchor === btn) { hideInfoPop(); return; }
+    showInfoPop(btn);
+    infoPopPinned = true;
+    return;
+  }
+  if (infoPopPinned) hideInfoPop();
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideInfoPop(); });
+window.addEventListener('scroll', () => { if (infoPopAnchor) hideInfoPop(); }, true);
+
 const PANEL_REGISTRY = {
   'coverage-strip': {
     id: 'coverage-strip', title: 'Coverage & Freshness', category: 'core', icon: 'broadcast',
@@ -361,6 +527,24 @@ const PANEL_REGISTRY = {
     defaultCol: 6,
     render: renderTokenVolumePanel,
   },
+  'hermes-activity': {
+    id: 'hermes-activity',
+    title: 'Hermes activity',
+    category: 'system',
+    icon: 'hermes',
+    description: 'Open Hermes sessions, whether a turn is running, which engine they call, and the gateway heartbeat.',
+    defaultCol: 12,
+    render: renderHermesActivityPanel,
+  },
+  'engine-facts': {
+    id: 'engine-facts',
+    title: 'Live details',
+    category: 'system',
+    icon: 'gauge',
+    description: 'Everything this engine reports about its current state: model, context, load, cache and speed where available.',
+    defaultCol: 12,
+    render: renderEngineFactsPanel,
+  },
   'engine-inventory': {
     id: 'engine-inventory',
     title: 'Models on this server',
@@ -375,7 +559,7 @@ const PANEL_REGISTRY = {
     title: 'Live Engine & Hardware Pulse',
     category: 'perf',
     icon: 'broadcast',
-    description: 'Real-time health monitor for MLX (:8080) and Ollama (:11434) backends and loaded models.',
+    description: 'Real-time health monitor for MLX and Ollama backends and loaded models.',
     defaultCol: 6,
     render: renderLivePulsePanel,
   },
@@ -1117,6 +1301,8 @@ function renderDashboard() {
             <span class="panel-drag-handle" title="Drag to reorder panel" draggable="true" ondragstart="onPanelDragStart(event, '${item.id}')">${icon("grip")}</span>
             <span class="panel-icon">${icon(def.icon)}</span>
             <span>${escapeHtml(def.title)}</span>
+            ${infoTip(panelInfo(item.id), def.title)}
+            ${scopeBadge(item.id)}
             <span class="panel-col-badge mono" id="col-badge-${item.id}">${item.cols || 6}\u00d7${item.rows || 4}</span>
           </div>
           <div class="panel-actions">
@@ -1160,6 +1346,7 @@ function renderKpiBanner(container, appState) {
 
   const tile = (o) => `
     <div class="stat" data-tone="${o.tone || 'neutral'}">
+      ${infoTip(o.info, o.label, 'info-tip--corner')}
       <p class="stat__value">
         <span class="stat__num mono">${o.value}</span>${o.unit ? `<span class="stat__unit">${o.unit}</span>` : ''}
       </p>
@@ -1175,11 +1362,13 @@ function renderKpiBanner(container, appState) {
         value: t.decode_tps_p50 != null ? t.decode_tps_p50 : dash(),
         unit: 'tok/s',
         label: 'Typical decode speed',
+        info: 'Median output speed per turn: output tokens divided by the time spent generating them. p90 and peak show the faster turns.',
         note: `median per turn \u00b7 p90 ${t.decode_tps_p90 || 0} \u00b7 peak ${t.decode_tps_peak || 0}`,
       })}
       ${tile({
         value: formatSecs(t.agent_wall_clock_s || 0),
         label: 'Agent wall clock',
+        info: 'Total time from each prompt to the agent\'s final answer, summed over turns. The note splits it into time running tools and time the model spent reasoning.',
         note: t.agent_wall_clock_s
           ? `${Math.round((t.tool_time_s / t.agent_wall_clock_s) * 100)}% tools \u00b7 ${Math.round((t.reasoning_time_s / t.agent_wall_clock_s) * 100)}% reasoning`
           : 'no timed turns',
@@ -1187,16 +1376,19 @@ function renderKpiBanner(container, appState) {
       ${tile({
         value: formatNum(t.tokens_generated || 0),
         label: 'Tokens generated',
+        info: 'Output tokens written by the model, across turns that recorded timing.',
         note: `across ${formatNum(t.turns_with_speed || 0)} productive turns`,
       })}
       ${tile({
         value: formatNum(t.context_peak || 0),
         label: 'Peak context carried',
+        info: 'The largest prompt sent in one request. Billed in adds up every prompt, so re-sent context counts each time; cached is the share served from the prompt cache.',
         note: `${formatNum(t.tokens_billed_input || 0)} billed in \u00b7 ${t.cache_hit_ratio || 0}% cached`,
       })}
       ${tile({
         value: t.sessions_root != null ? t.sessions_root : (st.total_sessions || 0),
         label: 'Sessions',
+        info: 'Sessions you started. Subagent runs, started by an agent for a sub-task, are counted separately.',
         note: `+${t.sessions_subagent || 0} subagent runs \u00b7 ${t.active_days || 0} active days`,
       })}
     </div>
@@ -1206,16 +1398,17 @@ function renderKpiBanner(container, appState) {
 // 2. Speculative Burst & Multi-Token Prediction (MTP) Analyzer
 function renderSpeculativeBurstPanel(container, appState) {
   const mlx = appState.live?.mlx || {};
-  const reqs = mlx.requests || [];
+  const { reqs, total } = mlxRequestsInWindow(mlx);
 
   if (!mlx.online) {
     container.innerHTML = engineOffline('MLX', 'Speculative burst rate');
     return;
   }
+  if (!reqs.length && total) { container.innerHTML = outsideWindowBlock(total); return; }
   if (!reqs.length) {
     container.innerHTML = stateBlock('empty', {
       title: 'No requests captured yet',
-      body: 'Burst rates are read from completed MLX requests. Send a request through MLX (:8080) and it will appear here.',
+      body: 'Burst rates are read from completed MLX requests. Send a request through MLX and it will appear here.',
     });
     return;
   }
@@ -1301,12 +1494,13 @@ function renderPrefillVsDecodePanel(container, appState) {
 function renderTtftLatencyPanel(container, appState) {
   const mlx = appState.live?.mlx || {};
   const det = mlx.details || {};
-  const reqs = mlx.requests || [];
+  const { reqs, total } = mlxRequestsInWindow(mlx);
 
   if (!mlx.online) {
     container.innerHTML = engineOffline('MLX', 'Time to first token');
     return;
   }
+  if (!reqs.length && total) { container.innerHTML = outsideWindowBlock(total); return; }
   if (!reqs.length && !det.ttft_s) {
     container.innerHTML = stateBlock('empty', {
       title: 'No TTFT records yet',
@@ -1338,12 +1532,13 @@ function renderTtftLatencyPanel(container, appState) {
 // 5. Scientific Turn & Request Telemetry Table
 function renderTelemetryTablePanel(container, appState) {
   const mlx = appState.live?.mlx || {};
-  const reqs = mlx.requests || [];
+  const { reqs, total } = mlxRequestsInWindow(mlx);
 
+  if (!reqs.length && total) { container.innerHTML = outsideWindowBlock(total); return; }
   if (!reqs.length) {
     container.innerHTML = `
       <div class="empty-state" style="padding:2rem;">
-        No live MLX requests captured in this session yet. As OpenCode queries MLX (:8080), requests appear here with live TTFT, Prefill, Decode, and Memory stats.
+        No live MLX requests captured in this session yet. As OpenCode queries MLX, requests appear here with live TTFT, Prefill, Decode, and Memory stats.
       </div>
     `;
     return;
@@ -1851,7 +2046,7 @@ function renderLivePulsePanel(container, appState, opts) {
   const box = (o) => `
     <div class="pulse-box ${o.online ? 'is-online' : 'is-offline'}" style="--pulse-accent:${o.accent};">
       <div class="pulse-box-title">
-        <span>${escapeHtml(o.name)}</span>
+        <span>${escapeHtml(o.name)}${infoTip(o.info, o.name)}</span>
         <span class="pulse-state mono">${o.online ? '\u25CF ONLINE' : '\u25CB OFFLINE'}</span>
       </div>
       <div class="pulse-box-val mono">${o.value}</div>
@@ -1865,41 +2060,185 @@ function renderLivePulsePanel(container, appState, opts) {
   const ollamaDet = (live.ollama || {}).details || {};
   const clawDet = (live.openclaw || {}).details || {};
   const cppDet = (live.llamacpp || {}).details || {};
+  const hermesDet = (live.hermes_gw || {}).details || {};
+  const hermesGw = hermesDet.gateway || {};
+  const hermesActive = hermesDet.active || [];
 
   const ENGINES = [
-    { id: 'mlx', name: 'MLX Engine (:8080)', online: !!(live.mlx || {}).online,
+    { id: 'mlx', name: `MLX Engine (:${(live.mlx || {}).port || 8080})`, online: !!(live.mlx || {}).online,
       accent: 'var(--accent-success)',
+      info: 'Speed and model of the latest request the MLX server finished. Read from its /metrics endpoint, on whichever port the MLX process was found.',
       value: (live.mlx || {}).online ? `${mlxDet.decode_tok_s || 0} <span class="pulse-unit">tok/s</span>` : 'Idle',
       sub: (live.mlx || {}).online ? escapeHtml(mlxDet.model?.split('/').pop() || 'Loaded') : 'Start with mlx_lm.server' },
     { id: 'ollama', name: 'Ollama Engine (:11434)', online: !!(live.ollama || {}).online,
       accent: 'var(--accent-secondary)',
+      info: 'The model Ollama has loaded in memory and how much memory it uses. Read from Ollama\'s /api/ps; the installed list comes from /api/tags.',
       value: (live.ollama || {}).online
         ? (ollamaDet.active_model ? escapeHtml(ollamaDet.active_model) : 'Standby') : 'Offline',
       sub: (live.ollama || {}).online
         ? (ollamaDet.size_vram_gb ? `${ollamaDet.size_vram_gb} GB VRAM` : '0 models active')
         : 'Local daemon' },
-    { id: 'llamacpp', name: 'llama.cpp (:8077)', online: !!(live.llamacpp || {}).online,
+    { id: 'llamacpp', name: `llama.cpp (:${(live.llamacpp || {}).port || 8077})`, online: !!(live.llamacpp || {}).online,
       accent: 'var(--accent-warning)',
-      value: (live.llamacpp || {}).online ? 'Running' : 'Offline',
-      sub: cppDet.context ? `${formatNum(cppDet.context)} context` : 'llama-server' },
+      info: 'Whether llama-server is answering, and its context size. Read from its /props endpoint.',
+      value: (live.llamacpp || {}).online
+        ? (cppDet.pulse ? `${escapeHtml(cppDet.pulse.value)}${cppDet.pulse.unit ? ` <span class="pulse-unit">${escapeHtml(cppDet.pulse.unit)}</span>` : ''}` : 'Running')
+        : 'Offline',
+      sub: cppDet.pulse ? escapeHtml(cppDet.pulse.sub || '') : (cppDet.context ? `${formatNum(cppDet.context)} context` : 'llama-server') },
     { id: 'openclaw_gw', name: `OpenClaw Gateway (:${clawDet.port || 18789})`,
       online: !!(live.openclaw || {}).online, accent: 'var(--accent-primary)',
+      info: 'Whether the OpenClaw gateway is listening, on the port set in openclaw.json, and how many transcripts it has written to disk.',
       value: (live.openclaw || {}).online
         ? (clawDet.version ? escapeHtml(String(clawDet.version)) : 'Running') : 'Offline',
       sub: `${clawDet.sessions || 0} transcript${clawDet.sessions === 1 ? '' : 's'} on disk` },
+    { id: 'hermes_gw', name: 'Hermes', online: !!(live.hermes_gw || {}).online,
+      accent: 'var(--accent-primary)',
+      info: 'Open Hermes sessions and gateway uptime. Hermes opens no port by default, so this is read from the files it keeps current in ~/.hermes.',
+      value: hermesActive.length
+        ? `${hermesActive.length} <span class="pulse-unit">active session${hermesActive.length === 1 ? '' : 's'}</span>`
+        : (hermesGw.pid ? 'Idle' : 'Offline'),
+      sub: hermesGw.pid
+        ? `Gateway up ${fmtAge(hermesGw.uptime_s)}${hermesGw.platforms && hermesGw.platforms.length ? ' \u00B7 ' + escapeHtml(hermesGw.platforms.join(', ')) : ' \u00B7 no platforms'}`
+        : 'Gateway not running' },
   ];
 
-  const rows = only ? ENGINES.filter(e => e.id === only) : ENGINES;
+  // Every other engine reports a generic pulse from its own reader.
+  const named = new Set(ENGINES.map(e => e.id));
+  ((appState.catalog || {}).servers || []).forEach(srv => {
+    const l = live[srv.id];
+    if (named.has(srv.id) || !l || !l.details || !l.details.pulse) return;
+    const pz = l.details.pulse;
+    ENGINES.push({
+      id: srv.id, name: `${srv.name} (:${l.port || srv.port})`, online: !!l.online,
+      accent: 'var(--accent-secondary)',
+      info: `Read live from ${srv.name}'s own API on port ${l.port || srv.port}. The Live details panel below lists everything it reports.`,
+      value: `${escapeHtml(String(pz.value))}${pz.unit ? ` <span class="pulse-unit">${escapeHtml(pz.unit)}</span>` : ''}`,
+      sub: escapeHtml(pz.sub || ''),
+    });
+  });
+
+  const rows = only ? ENGINES.filter(e => e.id === only) : ENGINES.filter(e => e.id !== 'hermes_gw' || e.online);
   if (!rows.length) {
     container.innerHTML = stateBlock('empty', {
-      title: 'Nothing live for this engine',
-      body: 'This server does not report a live pulse. Everything below still comes from recorded sessions.',
+      title: 'Not answering right now',
+      body: 'Start this server and its live card appears here within a few seconds.',
     });
     return;
   }
   container.innerHTML = `<div class="live-pulse-grid">${rows.map(box).join('')}</div>`;
 }
 
+
+// Seconds as the largest one or two units: 45s, 12m, 2h 43m, 3d 4h.
+function fmtAge(sec) {
+  if (sec == null || isNaN(sec)) return '\u2013';
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d) return `${d}d ${h % 24}h`;
+  if (h) return `${h}h ${m % 60}m`;
+  return m + 'm';
+}
+
+// Hermes keeps its live state on disk (gateway heartbeat, active-session
+// registry, turn leases), so this panel shows what the agent is doing now,
+// and which local engine it is talking to.
+function renderHermesActivityPanel(container, appState) {
+  const h = (appState.live || {}).hermes_gw;
+  if (!h) {
+    container.innerHTML = stateBlock('empty', {
+      title: 'Hermes not found', body: 'No Hermes home with a state.db on this machine.' });
+    return;
+  }
+  const det = h.details || {};
+  const gw = det.gateway;
+  const today = det.today || {};
+  const active = det.active || [];
+  const servers = ((appState.catalog || {}).servers || []);
+
+  const endpointLabel = (url) => {
+    if (!url) return '\u2013';
+    let host = '', port = '';
+    try { const u = new URL(url); host = u.hostname; port = u.port; } catch (e) { return escapeHtml(url); }
+    if (host === '127.0.0.1' || host === 'localhost') {
+      const srv = servers.find(x => String(x.port) === port
+        || (x.instances || []).some(i => String(i.port) === port));
+      if (srv) return `<a href="#/engines/${escapeHtml(srv.id)}">${escapeHtml(srv.name)}</a> <span class="mono">:${escapeHtml(port)}</span>`;
+    }
+    return `<span class="mono">${escapeHtml(host + (port ? ':' + port : ''))}</span>`;
+  };
+
+  const chip = (label, tone) => `<span class="cov-chip" data-tone="${tone || 'neutral'}">${label}</span>`;
+  const cacheOf = a => a.input_tokens ? Math.round(100 * a.cache_read_tokens / a.input_tokens) : null;
+
+  const gwChips = gw
+    ? [chip(`Gateway <strong>up ${fmtAge(gw.uptime_s)}</strong>`, 'good'),
+       chip(`heartbeat ${fmtAge(gw.heartbeat_age_s)} ago`, gw.heartbeat_age_s > 180 ? 'warn' : ''),
+       chip(`cron tick ${fmtAge(gw.cron_tick_age_s)} ago`, gw.cron_tick_age_s > 300 ? 'warn' : ''),
+       chip(`${gw.active_agents || 0} gateway agent${gw.active_agents === 1 ? '' : 's'}`),
+       chip(gw.platforms && gw.platforms.length ? escapeHtml(gw.platforms.join(', ')) : 'no messaging platforms'),
+       gw.version ? chip(`v${escapeHtml(gw.version)}`) : ''].join('')
+    : chip('Gateway not running', 'warn');
+
+  const todayChips = [
+    chip(`Today <strong>${today.sessions || 0}</strong> sessions`, 'primary'),
+    chip(`${formatNum(today.api_call_count || 0)} API calls`),
+    chip(`${formatNum(today.tool_call_count || 0)} tool calls`),
+    chip(`${formatNum(today.input_tokens || 0)} in / ${formatNum(today.output_tokens || 0)} out`),
+  ].join('');
+
+  const rows = active.map(a => {
+    const cache = cacheOf(a);
+    const busy = a.turn_started_at != null;
+    return `
+      <tr>
+        <td>
+          <div>${escapeHtml(a.title || a.session_id)}</div>
+          <div class="mono cell-sub">${escapeHtml(a.surface || '')} \u00B7 pid ${a.pid} \u00B7 ${escapeHtml(a.cwd || '')}</div>
+        </td>
+        <td>
+          <span class="tag" data-tone="${busy ? 'good' : 'neutral'}">${busy ? 'turn in flight' : 'waiting for you'}</span>
+          <div class="cell-sub">${escapeHtml(a.activity || '')}${a.activity_age_s != null ? ` \u00B7 ${fmtAge(a.activity_age_s)} ago` : ''}</div>
+        </td>
+        <td><div class="mono">${escapeHtml((a.model || '').split('/').pop())}</div><div>${endpointLabel(a.endpoint)}</div></td>
+        <td class="num mono">${a.api_calls}<div class="cell-sub">${a.tool_calls} tools</div></td>
+        <td class="num mono">${formatNum(a.input_tokens)} / ${formatNum(a.output_tokens)}
+          <div class="cell-sub">${cache != null ? cache + '% cached' : ''}</div></td>
+        <td class="num mono">${fmtAge(a.age_s)}</td>
+      </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="coverage-strip">${gwChips}</div>
+    <div class="coverage-strip" style="margin-block:0.5rem 0.75rem;">${todayChips}</div>
+    ${active.length ? `
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Active session</th><th>State</th><th>Model &amp; endpoint</th>
+          <th class="num">API calls</th><th class="num">Tokens in / out</th><th class="num">Open for</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`
+      : stateBlock('empty', { title: 'No Hermes session open', body: 'Start `hermes` in a terminal and it appears here.' })}
+  `;
+}
+
+// Everything an engine's live reader reported, as label/value pairs, plus
+// what to switch on for more where the engine can give it.
+function renderEngineFactsPanel(container, appState, opts) {
+  const id = (opts && opts.engine) || '';
+  const l = (appState.live || {})[id];
+  const det = (l && l.details) || {};
+  if (!l || !l.online) {
+    container.innerHTML = stateBlock('empty', { title: 'Server is not answering', body: 'Start it and its live details appear here.' });
+    return;
+  }
+  const facts = det.facts || [];
+  container.innerHTML = `
+    ${facts.length ? `<dl class="facts-grid">${facts.map(f => `
+      <div class="facts-grid__item"><dt>${escapeHtml(f.label)}</dt><dd class="mono">${escapeHtml(String(f.value))}</dd></div>`).join('')}</dl>`
+      : '<p class="settings-hint">The server is up but reported no details.</p>'}
+    ${det.note ? `<p class="panel-note">${escapeHtml(det.note)}</p>` : ''}
+  `;
+}
 
 function renderEngineInventoryPanel(container, appState, opts) {
   const live = appState.live || {};
@@ -1924,7 +2263,10 @@ function renderEngineInventoryPanel(container, appState, opts) {
     return;
   }
 
-  const loadedNames = new Set((det.loaded || []).map(m => m.name));
+  // An engine that reports what is loaded is taken at its word. One that only
+  // lists what it serves (vLLM, SGLang, KoboldCpp) has those models in memory.
+  const servingOnly = !det.installed && !det.loaded;
+  const loadedNames = new Set(servingOnly ? rows.map(r => r.name) : (det.loaded || []).map(m => m.name));
   const hasMeta = rows.some(r => r.size_gb || r.parameters || r.quantization);
 
   container.innerHTML = `
@@ -1944,7 +2286,7 @@ function renderEngineInventoryPanel(container, appState, opts) {
               <td class="mono">${escapeHtml(r.quantization || '--')}</td>
               <td class="num mono">${r.context ? formatNum(r.context) : '--'}</td>` : ''}
             <td>${loadedNames.has(r.name)
-                  ? '<span class="status-chip mono online">Loaded</span>'
+                  ? `<span class="status-chip mono online">${servingOnly ? 'Serving' : 'Loaded'}</span>`
                   : '<span class="status-chip mono offline">On disk</span>'}</td>
           </tr>`).join('')}
       </tbody>
@@ -2616,11 +2958,51 @@ function setTimeWindow(win, triggerFetch = true) {
   if (fromInput) fromInput.value = '';
   if (toInput) toInput.value = '';
 
-  if (triggerFetch) {
-    fetchStats();
-    fetchTimeseries();
-    fetchSessions();
-  }
+  if (triggerFetch) refetchForWindow();
+}
+
+// Everything the time window can narrow. Tools, Models and Projects were
+// missing here, so those pages kept showing all-time figures after a change.
+function refetchForWindow() {
+  fetchStats();
+  fetchTimeseries();
+  fetchSessions();
+  fetchDerived();
+  refreshActivePage();
+}
+
+// The active window as [startMs, endMs] (null = open), for data filtered in
+// the browser, such as the MLX request history.
+const WINDOW_MS_CLIENT = { '10m': 6e5, '1h': 3.6e6, '6h': 2.16e7, '1d': 8.64e7, '3d': 2.592e8, '7d': 6.048e8, '30d': 2.592e9 };
+function windowBoundsMs() {
+  const f = state.activeFilter || {};
+  if (f.window && WINDOW_MS_CLIENT[f.window]) return [Date.now() - WINDOW_MS_CLIENT[f.window], null];
+  const from = f.from ? Date.parse(f.from) : NaN;
+  const to = f.to ? Date.parse(f.to) : NaN;
+  return [isNaN(from) ? null : from, isNaN(to) ? null : to];
+}
+
+function windowIsAll() {
+  const [a, b] = windowBoundsMs();
+  return a == null && b == null;
+}
+
+// MLX keeps its last 20 requests; this is the part of them inside the window.
+function mlxRequestsInWindow(mlx) {
+  const all = (mlx && mlx.requests) || [];
+  const [a, b] = windowBoundsMs();
+  const reqs = all.filter(r => {
+    const t = (r.timestamp || 0) * 1000;
+    return (a == null || t >= a) && (b == null || t <= b);
+  });
+  return { reqs, total: all.length };
+}
+
+function outsideWindowBlock(total) {
+  return stateBlock('empty', {
+    title: 'No requests in this time window',
+    body: `None of the ${total} most recent MLX requests fall inside the selected window. Widen it to see them.`,
+  });
 }
 
 function onCustomDateTimeChange() {
@@ -2631,9 +3013,7 @@ function onCustomDateTimeChange() {
     state.activeFilter.from = fromVal || '';
     state.activeFilter.to = toVal || '';
     document.querySelectorAll('.timewindow-pill').forEach(pill => pill.classList.remove('active'));
-    fetchStats();
-    fetchTimeseries();
-    fetchSessions();
+    refetchForWindow();
   }
 }
 
@@ -2731,7 +3111,7 @@ function updateServerStatuses() {
   const portEl = document.getElementById('sidePortOpenClawGw');
   if (portEl) portEl.textContent = `:${clawPort}`;
 
-  setDot('dotMlx', mlxOnline, `MLX Server (:8080) ${mlxOnline ? 'Online' : 'Offline'}`);
+  setDot('dotMlx', mlxOnline, `MLX Server (:${state.live.mlx?.port || 8080}) ${mlxOnline ? 'Online' : 'Offline'}`);
   setDot('dotOllama', ollamaOnline, `Ollama (:11434) ${ollamaOnline ? 'Online' : 'Offline'}`);
   setDot('dotOpenClawGw', clawOnline, `OpenClaw gateway (:${clawPort}) ${clawOnline ? 'Online' : 'Offline'}`);
 }
@@ -3142,7 +3522,7 @@ function renderDataSources() {
     return `
       <button class="sidebar-source-item${active ? ' active' : ''}${h.count ? '' : ' is-empty'}"
               data-harness="${h.id === 'all' ? '' : h.id}"
-              ${unreadable ? 'disabled title="Detected on this machine, but its transcript format is not read yet"' : ''}
+              ${unreadable ? `disabled title="${escapeHtml(h.reason || 'Detected on this machine, but its transcript format is not read yet')}"` : ''}
               onclick="selectDataSource('${h.id === 'all' ? '' : h.id}')">
         <span class="source-icon" aria-hidden="true">${icon(h.icon)}</span>
         <span class="source-name">${escapeHtml(h.name)}</span>
@@ -3167,16 +3547,37 @@ function renderServerList() {
   host.innerHTML = rows.map(s => `
     <button class="sidebar-server-item${s.online ? ' is-online' : ''}"
             data-server="${s.id}" onclick="showServerPanel('${s.id}')"
-            title="${escapeHtml(s.name)} on port ${s.port}${s.installed ? '' : ' (not installed)'}">
+            title="${escapeHtml(s.name)} ${s.via === 'socket' ? 'over its local socket' : 'on port ' + s.port}${s.installed ? '' : ' (not installed)'}">
       <span class="source-icon" aria-hidden="true">${icon(s.icon)}</span>
       <span class="server-meta">
         <span class="source-name">${escapeHtml(s.name)}</span>
-        <span class="server-port mono">:${s.port}</span>
+        <span class="server-port mono">${portLabel(s)}${extraInstances(s)}</span>
       </span>
       <span class="status-chip mono ${s.online ? 'online' : 'offline'}">${s.online ? 'Online' : 'Offline'}</span>
     </button>
   `).join('');
 
+}
+
+// How Tach found a server, for the info tip on its Engines header.
+function engineFoundHow(s) {
+  if (s.via === 'socket') return `${s.name} opens no network port here, so Tach reads its state files to tell whether it is running.`;
+  const inst = s.instances || [];
+  const src = { discovered: 'found by scanning which process is listening', config: 'pinned in Settings', default: 'the default port' };
+  const parts = inst.map(i => `:${i.port} (${src[i.source] || 'default port'}${i.online ? '' : ', not answering'})`);
+  return parts.length ? `Ports checked: ${parts.join(', ')}. Pin other ports in Settings \u2192 Server ports.` : '';
+}
+
+// A server can answer on several ports (two MLX instances, say). The primary
+// one is shown; the rest are counted.
+// A server reached over a Unix socket (the Hermes gateway) has no port.
+function portLabel(s) {
+  return s.via === 'socket' ? 'socket' : `:${s.port || '--'}`;
+}
+
+function extraInstances(s) {
+  const more = (s.instances || []).filter(i => i.online && i.port !== s.port).length;
+  return more ? ` +${more}` : '';
 }
 
 // Settings: the full catalog, so it is clear what was looked for and not found.
@@ -3194,7 +3595,7 @@ function renderCatalogTable() {
       <td class="mono">${c.kind}</td>
       <td>${c.detected
             ? (c.readable ? '<span class="tag" data-tone="good">read</span>'
-                          : '<span class="tag" data-tone="warn">found, not read</span>')
+                          : `<span class="tag" data-tone="warn"${c.reason ? ` title="${escapeHtml(c.reason)}"` : ''}>found, not read</span>`)
             : '<span class="tag" data-tone="neutral">absent</span>'}</td>
       <td class="mono sys-val">${c.path ? escapeHtml(c.path) : '\u2013'}</td>
     </tr>`;
@@ -3202,7 +3603,8 @@ function renderCatalogTable() {
   const srvRow = s => `
     <tr class="${(s.online || s.installed) ? '' : 'is-absent'}">
       <td><span class="source-icon">${icon(s.icon)}</span> ${escapeHtml(s.name)}</td>
-      <td class="mono">:${s.port}</td>
+      <td class="mono">${(s.instances && s.instances.length ? s.instances : [{ port: s.port }]).map(i =>
+            i.port == null ? '<span title="Running per its state file; talks over a Unix socket">socket</span>' : `<span title="${i.source === 'config' ? 'Pinned in settings' : i.source === 'discovered' ? 'Found by process scan' : 'Default port'}"${i.online === false && s.online ? ' class="is-absent"' : ''}>:${i.port}</span>`).join(' ')}</td>
       <td>${s.online ? '<span class="tag" data-tone="good">online</span>'
                      : s.installed ? '<span class="tag" data-tone="warn">installed, stopped</span>'
                                    : '<span class="tag" data-tone="neutral">not installed</span>'}</td>
@@ -3291,7 +3693,7 @@ registerPage({
   title: 'Engines',
   icon: 'engines',
   navSection: 'analysis',
-  toolbar: [],
+  toolbar: ['timeWindow'],
   mount(el) {
     el.innerHTML = '<div class="page-head"><h1 class="page-title" id="enginesTitle">Local Engines</h1>'
       + '<p class="page-sub" id="enginesSub"></p></div>'
@@ -3306,6 +3708,9 @@ registerPage({
     const live = state.live || {};
     const cat = state.catalog || {};
     const servers = (cat.servers || []).filter(s => s.online || s.installed);
+    // /api/live covers the engines it reads in depth; the rest fall back to
+    // the catalog's reachability check rather than showing as offline.
+    const isOn = id => (live[id] ? !!live[id].online : !!(servers.find(x => x.id === id) || {}).online);
 
     // Anything from the URL is attacker-controlled, and this value ends up in
     // markup and in element ids. Accept it only if it names a server we know.
@@ -3318,7 +3723,7 @@ registerPage({
       tabs.innerHTML = [{ id: '', name: 'All engines' }].concat(servers).map(s => `
         <button class="engine-tab${(s.id || '') === selected ? ' active' : ''}"
                 onclick="selectEngine('${s.id || ''}')">
-          ${s.id ? `<span class="dot${(live[s.id] || {}).online ? '' : ' red'}"></span>` : ''}${escapeHtml(s.name)}
+          ${s.id ? `<span class="dot${isOn(s.id) ? '' : ' red'}"></span>` : ''}${escapeHtml(s.name)}
         </button>`).join('');
     }
 
@@ -3332,8 +3737,8 @@ registerPage({
     if (title) title.textContent = sel ? sel.name : 'Local Engines';
     if (sub) {
       sub.textContent = sel
-        ? ((live[sel.id] || {}).online
-            ? `Answering on port ${sel.port}.`
+        ? (isOn(sel.id)
+            ? (sel.via === 'socket' ? 'Running, reached over its local socket.' : `Answering on port ${sel.port}.`)
             : `Not answering on port ${sel.port}. Start it and this fills in.`)
         : 'Every local server this machine knows about, grouped by engine.';
     }
@@ -3347,6 +3752,8 @@ registerPage({
       if ((det.installed && det.installed.length) || (det.served && det.served.length)) {
         out.push(['engine-inventory', 12, 5]);
       }
+      if (id === 'hermes_gw') out.push(['hermes-activity', 12, 6]);
+      if (det.facts && det.facts.length) out.push(['engine-facts', 12, 4]);
       if (id === 'mlx') {
         out.push(['speculative-burst', 6, 5], ['decode-acceleration', 6, 5],
                  ['prefill-vs-decode', 6, 4], ['ttft-latency', 6, 4],
@@ -3360,7 +3767,7 @@ registerPage({
 
     body.innerHTML = groupIds.map(id => {
       const server = servers.find(s => s.id === id) || { id, name: FALLBACK[id] || id, port: '' };
-      const on = !!(live[id] || {}).online;
+      const on = isOn(id);
       const panels = panelsFor(id);
       // Collapsing only makes sense when several engines are stacked.
       const collapsible = groupIds.length > 1;
@@ -3377,7 +3784,8 @@ registerPage({
               </button>` : ''}
             <span class="engine-group__icon">${icon(server.icon || 'server')}</span>
             <h2 class="engine-group__name">${escapeHtml(server.name)}</h2>
-            <span class="engine-group__port mono">:${server.port || '--'}</span>
+            <span class="engine-group__port mono">${portLabel(server)}</span>
+            ${infoTip(engineFoundHow(server), server.name)}
             <span class="status-chip mono ${on ? 'online' : 'offline'}">${on ? 'Online' : 'Offline'}</span>
             ${collapsible ? `<span class="engine-group__count mono">${panels.length} panel${panels.length === 1 ? '' : 's'}</span>` : ''}
           </header>
@@ -3391,6 +3799,8 @@ registerPage({
                 <div class="dashboard-panel" style="--panel-cols:${c};--panel-rows:${r};">
                   <div class="panel-header"><div class="panel-title-wrap">
                     <span class="panel-icon">${icon(def.icon)}</span><span>${escapeHtml(def.title)}</span>
+                    ${infoTip(panelInfo(pid), def.title)}
+                    ${scopeBadge(pid)}
                   </div></div>
                   <div class="panel-body" id="panel-body-${key}"></div>
                 </div>`;
@@ -3434,18 +3844,18 @@ registerPage({
 
     host.innerHTML = `
       <div class="kpi-strip" style="margin-block-end:1.25rem;">
-        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${formatNum(totalCalls)}</span></p><h3 class="stat__label">Tool calls</h3><p class="stat__note">across ${rows.length} distinct tools</p></div>
-        <div class="stat" data-tone="${totalErrs ? 'warn' : 'good'}"><p class="stat__value"><span class="stat__num mono">${totalErrs}</span></p><h3 class="stat__label">Failed calls</h3><p class="stat__note">${(totalErrs / (totalCalls || 1) * 100).toFixed(1)}% of all calls</p></div>
-        <div class="stat"><p class="stat__value"><span class="stat__num mono">${formatSecs(totalTime)}</span></p><h3 class="stat__label">Time in tools</h3><p class="stat__note">summed call duration</p></div>
-        <div class="stat" data-tone="${worstTool && worstTool.error_rate > 20 ? 'bad' : 'neutral'}"><p class="stat__value"><span class="stat__num mono">${worstTool ? worstTool.error_rate + '%' : dash()}</span></p><h3 class="stat__label">Worst error rate</h3><p class="stat__note mono">${worstTool ? escapeHtml(worstTool.name) : ''}</p></div>
+        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${formatNum(totalCalls)}</span></p><h3 class="stat__label">Tool calls</h3>${infoTip('Every tool call the agent made in the selected window.', 'Tool calls', 'info-tip--corner')}<p class="stat__note">across ${rows.length} distinct tools</p></div>
+        <div class="stat" data-tone="${totalErrs ? 'warn' : 'good'}"><p class="stat__value"><span class="stat__num mono">${totalErrs}</span></p><h3 class="stat__label">Failed calls</h3>${infoTip('Tool calls whose result was an error.', 'Failed calls', 'info-tip--corner')}<p class="stat__note">${(totalErrs / (totalCalls || 1) * 100).toFixed(1)}% of all calls</p></div>
+        <div class="stat"><p class="stat__value"><span class="stat__num mono">${formatSecs(totalTime)}</span></p><h3 class="stat__label">Time in tools</h3>${infoTip('The duration of every tool call added together. Calls that ran at the same time are each counted.', 'Time in tools', 'info-tip--corner')}<p class="stat__note">summed call duration</p></div>
+        <div class="stat" data-tone="${worstTool && worstTool.error_rate > 20 ? 'bad' : 'neutral'}"><p class="stat__value"><span class="stat__num mono">${worstTool ? worstTool.error_rate + '%' : dash()}</span></p><h3 class="stat__label">Worst error rate</h3>${infoTip('The tool with the highest share of failed calls.', 'Worst error rate', 'info-tip--corner')}<p class="stat__note mono">${worstTool ? escapeHtml(worstTool.name) : ''}</p></div>
       </div>
       <div class="dashboard-grid">
         <div class="dashboard-panel" style="--panel-cols:7;--panel-rows:9;">
-          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD27</span><span>Reliability &amp; latency</span></div></div>
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD27</span><span>Reliability &amp; latency</span>${infoTip(panelInfo('tool-reliability'), 'Reliability &amp; latency')}</div></div>
           <div class="panel-body" id="toolsTable"></div>
         </div>
         <div class="dashboard-panel" style="--panel-cols:5;--panel-rows:9;">
-          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDC0C</span><span>Longest single calls</span></div></div>
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDC0C</span><span>Longest single calls</span>${infoTip(panelInfo('long-poles'), 'Longest single calls')}</div></div>
           <div class="panel-body" id="toolsPoles"></div>
         </div>
       </div>
@@ -3474,13 +3884,13 @@ registerPage({
 
     host.innerHTML = `
       <div class="kpi-strip" style="margin-block-end:1.25rem;">
-        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${rows.length}</span></p><h3 class="stat__label">Models used</h3><p class="stat__note">in this window</p></div>
-        <div class="stat" data-tone="good"><p class="stat__value"><span class="stat__num mono">${fastest.p50_tps}</span><span class="stat__unit">tok/s</span></p><h3 class="stat__label">Fastest median</h3><p class="stat__note mono">${escapeHtml(fastest.name)}</p></div>
-        <div class="stat"><p class="stat__value"><span class="stat__num mono">${cachiest.cache_ratio}%</span></p><h3 class="stat__label">Best cache reuse</h3><p class="stat__note mono">${escapeHtml(cachiest.name)}</p></div>
+        <div class="stat" data-tone="primary"><p class="stat__value"><span class="stat__num mono">${rows.length}</span></p><h3 class="stat__label">Models used</h3>${infoTip('Distinct models that produced at least one turn in the selected window.', 'Models used', 'info-tip--corner')}<p class="stat__note">in this window</p></div>
+        <div class="stat" data-tone="good"><p class="stat__value"><span class="stat__num mono">${fastest.p50_tps}</span><span class="stat__unit">tok/s</span></p><h3 class="stat__label">Fastest median</h3>${infoTip('The model with the highest median decode speed per turn.', 'Fastest median', 'info-tip--corner')}<p class="stat__note mono">${escapeHtml(fastest.name)}</p></div>
+        <div class="stat"><p class="stat__value"><span class="stat__num mono">${cachiest.cache_ratio}%</span></p><h3 class="stat__label">Best cache reuse</h3>${infoTip('The model whose prompts were most often served from the prompt cache.', 'Best cache reuse', 'info-tip--corner')}<p class="stat__note mono">${escapeHtml(cachiest.name)}</p></div>
       </div>
       <div class="dashboard-grid">
         <div class="dashboard-panel" style="--panel-cols:12;--panel-rows:9;">
-          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83E\uDDEE</span><span>Comparison matrix</span></div></div>
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83E\uDDEE</span><span>Comparison matrix</span>${infoTip(panelInfo('model-matrix'), 'Comparison matrix')}</div></div>
           <div class="panel-body" id="modelsTable"></div>
         </div>
       </div>
@@ -3507,11 +3917,11 @@ registerPage({
     host.innerHTML = `
       <div class="dashboard-grid" style="margin-block-end:1.25rem;">
         <div class="dashboard-panel" style="--panel-cols:5;--panel-rows:7;">
-          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDCC1</span><span>Effort by project</span></div></div>
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDCC1</span><span>Effort by project</span>${infoTip(panelInfo('projects-leaderboard'), 'Effort by project')}</div></div>
           <div class="panel-body" id="projLeader"></div>
         </div>
         <div class="dashboard-panel" style="--panel-cols:7;--panel-rows:7;">
-          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD01</span><span>Most re-edited files</span></div></div>
+          <div class="panel-header"><div class="panel-title-wrap"><span class="panel-icon">\uD83D\uDD01</span><span>Most re-edited files</span>${infoTip(panelInfo('file-churn'), 'Most re-edited files')}</div></div>
           <div class="panel-body" id="projChurn"></div>
         </div>
       </div>
@@ -3558,8 +3968,80 @@ registerPage({
       btn.classList.toggle('active', btn.id === 'btnMode' + (state.mode || 'dark').charAt(0).toUpperCase() + (state.mode || 'dark').slice(1));
     });
     renderSystemInfo();
+    fetchServerConfig();
+    applyInfoTips(!state.workspace || state.workspace.prefs.infoTips !== false);
   },
 });
+
+// ---- Server ports: pins for servers the process scan cannot name. ----
+async function fetchServerConfig() {
+  try {
+    const res = await fetch('/api/config');
+    state.serverConfig = await res.json();
+  } catch (err) {
+    state.serverConfig = state.serverConfig || { servers: {} };
+  }
+  renderPortOverrides();
+}
+
+function renderPortOverrides() {
+  const host = document.getElementById('portOverrides');
+  const sel = document.getElementById('portEngine');
+  const pathEl = document.getElementById('configPath');
+  const cfg = state.serverConfig || { servers: {} };
+  const catalog = (state.catalog && state.catalog.servers) || [];
+  const nameOf = id => (catalog.find(s => s.id === id) || {}).name || id;
+  if (pathEl && cfg.path) pathEl.textContent = cfg.path;
+
+  if (sel && !sel.options.length) {
+    sel.innerHTML = catalog.map(s =>
+      `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+  }
+  if (!host) return;
+  const rows = Object.entries(cfg.servers || {});
+  host.innerHTML = rows.length ? rows.map(([id, ports]) => `
+    <div class="port-override">
+      <span class="port-override__name">${escapeHtml(nameOf(id))}</span>
+      ${ports.map(p => `
+        <span class="port-chip mono">:${p}
+          <button type="button" aria-label="Remove port ${p}"
+                  onclick="savePortOverride('${escapeHtml(id)}', ${p}, false)">\u00D7</button>
+        </span>`).join('')}
+    </div>`).join('') : '<p class="settings-hint">No pinned ports. Everything above was found automatically.</p>';
+}
+
+async function savePortOverride(engine, port, add) {
+  const current = ((state.serverConfig || {}).servers || {})[engine] || [];
+  const ports = add ? current.concat([port]) : current.filter(p => p !== port);
+  try {
+    const res = await fetch('/api/config/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine, ports }),
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    state.serverConfig = Object.assign({}, state.serverConfig, { servers: data.servers });
+    state.catalog = data.catalog;
+    renderPortOverrides();
+    renderServerList();
+    renderCatalogTable();
+    fetchLiveStatus();
+    showToast(add ? `Watching :${port}` : `Stopped watching :${port}`);
+  } catch (err) {
+    showToast('Could not save the port');
+  }
+}
+
+function addPortOverride(ev) {
+  ev.preventDefault();
+  const engine = document.getElementById('portEngine').value;
+  const input = document.getElementById('portValue');
+  const port = parseInt(input.value, 10);
+  if (!engine || !(port > 0 && port < 65536)) return;
+  input.value = '';
+  savePortOverride(engine, port, true);
+}
 
 // Kept so the 47 inline handlers in index.html keep working during the
 // transition; both now route to the settings page.
@@ -3709,6 +4191,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   applyTheme(state.workspace.prefs.theme || 'subtle');
   applyMode(state.workspace.prefs.mode || 'dark');
+  applyInfoTips(state.workspace.prefs.infoTips !== false);
 
   // 2. Open the dashboard that should be showing, without prompting on boot.
   const bootId = state.workspace.activeDashboardId || state.workspace.defaultDashboardId || 'default';

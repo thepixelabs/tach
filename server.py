@@ -14,10 +14,12 @@ from datetime import datetime
 import urllib.request
 import urllib.error
 import socket
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import argparse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 PORT = 3344
 STATIC_DIR = Path(__file__).parent / "static"
@@ -244,27 +246,428 @@ def get_db_connection():
     return sqlite3.connect(uri, uri=True)
 
 
-def check_live_status():
-    status = {
-        "mlx": {"online": False, "details": None, "requests": [], "apc": None, "summary": None},
-        "ollama": {"online": False, "details": None},
-        "llamacpp": {"online": False, "details": None},
-        "openclaw": {"online": False, "details": None},
+# ============================================================
+# ENGINE LIVE DETAIL
+# Every engine gets a live card built from what it actually publishes. Each
+# reader returns the same shape so the page renders them generically:
+#   pulse  {value, unit, sub}        the headline on the live card
+#   facts  [{label, value}]          the "Live details" panel
+#   note   str                       what to switch on for more, if anything
+#   served / installed / loaded      the model inventory
+# Endpoints and field names are from each project's docs or source; see the
+# comment on each reader.
+# ============================================================
+
+def _http_get(port, path, timeout=0.8, text=False):
+    """(status, body). body is parsed JSON, or raw text when text=True."""
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={"User-Agent": "Telemetry"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(2_000_000).decode("utf-8", "replace")
+            if text:
+                return resp.status, raw
+            try:
+                return resp.status, json.loads(raw)
+            except Exception:
+                return resp.status, None
+    except urllib.error.HTTPError as e:
+        return e.code, None
+    except Exception:
+        return None, None
+
+
+def _prom(text):
+    """
+    Prometheus text format to {metric: value}, summed across label sets (one
+    model, one engine is the local case). Histograms keep their _sum and
+    _count series, which is enough for an average.
+    """
+    out = {}
+    for line in (text or "").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        name_part, _, rest = line.partition(" ") if "{" not in line.split(" ")[0] else line.partition("} ")
+        name = name_part.split("{")[0].strip()
+        try:
+            val = float(rest.strip().split(" ")[0])
+        except Exception:
+            continue
+        if name.endswith("_bucket"):
+            continue
+        out[name] = out.get(name, 0.0) + val
+    return out
+
+
+def _avg(m, base):
+    n = m.get(base + "_count")
+    return (m.get(base + "_sum", 0.0) / n) if n else None
+
+
+def _fact(label, value):
+    return {"label": label, "value": value}
+
+
+def _openai_served(port):
+    st, body = _http_get(port, "/v1/models")
+    if st == 200 and isinstance(body, dict) and isinstance(body.get("data"), list):
+        return [m for m in body["data"] if isinstance(m, dict) and m.get("id")]
+    return None
+
+
+def _live_lmstudio(port):
+    # lmstudio.ai/docs/developer/rest/list: /api/v1/models (0.4+) marks loaded
+    # models with loaded_instances[]; /api/v0/models has state "loaded".
+    st, body = _http_get(port, "/api/v1/models")
+    models = []
+    if st == 200 and isinstance(body, dict):
+        for m in body.get("models") or body.get("data") or []:
+            inst = m.get("loaded_instances") or []
+            q = m.get("quantization") or {}
+            models.append({
+                "name": m.get("key") or m.get("display_name"),
+                "size_gb": round((m.get("size_bytes") or 0) / 1024**3, 2),
+                "parameters": m.get("params_string"),
+                "quantization": q.get("name") if isinstance(q, dict) else q,
+                "context": ((inst[0].get("config") or {}).get("context_length") if inst else None) or m.get("max_context_length") or 0,
+                "loaded": bool(inst),
+            })
+    else:
+        st, body = _http_get(port, "/api/v0/models")
+        if st == 200 and isinstance(body, dict):
+            for m in body.get("data") or []:
+                models.append({"name": m.get("id"), "quantization": m.get("quantization"),
+                               "context": m.get("max_context_length") or 0,
+                               "loaded": m.get("state") == "loaded", "size_gb": 0})
+    if st != 200:
+        return None
+    loaded = [m for m in models if m["loaded"]]
+    return {
+        "installed": models, "loaded": [{"name": m["name"], "context": m["context"]} for m in loaded],
+        "pulse": {"value": escape_count(len(loaded), "model") + " loaded", "sub": loaded[0]["name"] if loaded else "Nothing loaded"},
+        "facts": [_fact("Loaded", ", ".join(m["name"] for m in loaded) or "none"),
+                  _fact("Context", f"{loaded[0]['context']:,}" if loaded and loaded[0]["context"] else "–"),
+                  _fact("Downloaded models", len(models))],
+        "note": "LM Studio reports speed per completion only, so there is no running tokens/s figure.",
     }
 
-    # Check MLX Server (:8080)
+
+def _live_vllm(port):
+    # vllm/v1/metrics/loggers.py; V0 used gpu_cache_usage_perc, V1 renamed it
+    # kv_cache_usage_perc. /metrics, /version stay open even with --api-key.
+    served = _openai_served(port)
+    _, text = _http_get(port, "/metrics", text=True)
+    m = _prom(text)
+    if served is None and not m:
+        return None
+    kv = m.get("vllm:kv_cache_usage_perc", m.get("vllm:gpu_cache_usage_perc"))
+    running = int(m.get("vllm:num_requests_running", 0))
+    waiting = int(m.get("vllm:num_requests_waiting", 0))
+    hits, queries = m.get("vllm:prefix_cache_hits_total"), m.get("vllm:prefix_cache_queries_total")
+    ttft = _avg(m, "vllm:time_to_first_token_seconds")
+    itl = _avg(m, "vllm:inter_token_latency_seconds") or _avg(m, "vllm:time_per_output_token_seconds")
+    _, ver = _http_get(port, "/version")
+    first = (served or [{}])[0]
+    return {
+        "served": [s["id"] for s in served or []],
+        "pulse": {"value": f"{running}", "unit": "running", "sub": f"{waiting} waiting · KV {round(kv * 100)}%" if kv is not None else f"{waiting} waiting"},
+        "facts": [f for f in [
+            _fact("Model", first.get("id")),
+            _fact("Max context", f"{first['max_model_len']:,}") if first.get("max_model_len") else None,
+            _fact("Requests running / waiting", f"{running} / {waiting}"),
+            _fact("KV cache used", f"{round(kv * 100, 1)}%") if kv is not None else None,
+            _fact("Prefix cache hit rate", f"{round(100 * hits / queries, 1)}%") if queries else None,
+            _fact("Avg time to first token", f"{ttft:.2f}s") if ttft else None,
+            _fact("Avg decode speed", f"{1 / itl:.1f} tok/s") if itl else None,
+            _fact("Tokens in / out (total)", f"{int(m.get('vllm:prompt_tokens_total', 0)):,} / {int(m.get('vllm:generation_tokens_total', 0)):,}") if m else None,
+            _fact("Version", (ver or {}).get("version")) if isinstance(ver, dict) else None,
+        ] if f and f["value"] not in (None, "")],
+        "note": None if m else "/metrics did not answer, so only the model list is shown.",
+    }
+
+
+def _live_sglang(port):
+    # sglang docs/references/production_metrics.mdx: /metrics needs
+    # --enable-metrics. /model_info replaced /get_model_info.
+    served = _openai_served(port)
+    _, text = _http_get(port, "/metrics", text=True)
+    m = _prom(text)
+    st, info = _http_get(port, "/model_info")
+    if st != 200:
+        st, info = _http_get(port, "/get_model_info")
+    if served is None and not m and not isinstance(info, dict):
+        return None
+    info = info if isinstance(info, dict) else {}
+    running = int(m.get("sglang:num_running_reqs", 0))
+    tput = m.get("sglang:gen_throughput")
+    usage = m.get("sglang:token_usage")
+    first = (served or [{}])[0]
+    return {
+        "served": [s["id"] for s in served or []],
+        "pulse": ({"value": f"{tput:.1f}", "unit": "tok/s", "sub": f"{running} running · {int(m.get('sglang:num_queue_reqs', 0))} queued"}
+                  if m else {"value": "Running", "sub": info.get("served_model_name") or first.get("id") or ""}),
+        "facts": [f for f in [
+            _fact("Model", info.get("served_model_name") or info.get("model_path") or first.get("id")),
+            _fact("Max context", f"{first['max_model_len']:,}") if first.get("max_model_len") else None,
+            _fact("Generation throughput", f"{tput:.1f} tok/s") if tput is not None else None,
+            _fact("Requests running / queued", f"{running} / {int(m.get('sglang:num_queue_reqs', 0))}") if m else None,
+            _fact("KV cache used", f"{round(usage * 100, 1)}%") if usage is not None else None,
+            _fact("Prefix cache hit rate", f"{round(m['sglang:cache_hit_rate'] * 100, 1)}%") if "sglang:cache_hit_rate" in m else None,
+            _fact("Avg time to first token", f"{_avg(m, 'sglang:time_to_first_token_seconds'):.2f}s") if _avg(m, "sglang:time_to_first_token_seconds") else None,
+        ] if f and f["value"] not in (None, "")],
+        "note": None if m else "Start SGLang with --enable-metrics for throughput, queue and KV cache figures.",
+    }
+
+
+def _live_llamacpp(port):
+    # tools/server/README.md: /props always; /slots on unless --no-slots;
+    # /metrics only with --metrics.
+    st, props = _http_get(port, "/props")
+    if st != 200 or not isinstance(props, dict):
+        return None
+    gen = props.get("default_generation_settings") or {}
+    model_path = props.get("model_path") or gen.get("model") or ""
+    model = str(model_path).split("/")[-1] or None
+    _, slots = _http_get(port, "/slots")
+    slots = slots if isinstance(slots, list) else None
+    busy = sum(1 for s in slots or [] if isinstance(s, dict) and s.get("is_processing"))
+    _, text = _http_get(port, "/metrics", text=True)
+    m = _prom(text)
+    decode = m.get("llamacpp:predicted_tokens_seconds")
+    prefill = m.get("llamacpp:prompt_tokens_seconds")
+    total = props.get("total_slots") or len(slots or []) or gen.get("n_parallel") or 0
+    notes = []
+    if slots is None:
+        notes.append("/slots is off (--no-slots)")
+    if not m:
+        notes.append("start llama-server with --metrics for speed and queue figures")
+    return {
+        "context": gen.get("n_ctx", 0), "model": model, "slots": total, "chat_format": props.get("chat_format"),
+        "pulse": ({"value": f"{decode:.1f}", "unit": "tok/s", "sub": f"{busy}/{total} slots busy · {model or ''}"}
+                  if decode else {"value": f"{busy}/{total}", "unit": "slots busy", "sub": model or ""}),
+        "facts": [f for f in [
+            _fact("Model", model),
+            _fact("Context per slot", f"{gen.get('n_ctx'):,}") if gen.get("n_ctx") else None,
+            _fact("Slots busy", f"{busy} of {total}") if slots is not None else None,
+            _fact("Avg decode speed", f"{decode:.1f} tok/s") if decode else None,
+            _fact("Avg prefill speed", f"{prefill:.1f} tok/s") if prefill else None,
+            _fact("Requests processing / deferred", f"{int(m.get('llamacpp:requests_processing', 0))} / {int(m.get('llamacpp:requests_deferred', 0))}") if m else None,
+            _fact("Tokens in / out (total)", f"{int(m.get('llamacpp:prompt_tokens_total', 0)):,} / {int(m.get('llamacpp:tokens_predicted_total', 0)):,}") if m else None,
+            _fact("Build", (props.get("build_info") or "")[:40] or None),
+        ] if f and f["value"] not in (None, "")],
+        "note": ("Tip: " + "; ".join(notes) + ".") if notes else None,
+    }
+
+
+def _live_kobold(port):
+    # koboldcpp.py: /api/extra/perf, /api/extra/version, /api/v1/model and
+    # /api/extra/true_max_context_length need no password.
+    st, perf = _http_get(port, "/api/extra/perf")
+    if st != 200 or not isinstance(perf, dict):
+        return None
+    _, model = _http_get(port, "/api/v1/model")
+    _, ver = _http_get(port, "/api/extra/version")
+    _, ctx = _http_get(port, "/api/extra/true_max_context_length")
+    name = (model or {}).get("result") if isinstance(model, dict) else None
+    speed = perf.get("last_eval_speed")
+    return {
+        "served": [name] if name else [],
+        "pulse": {"value": f"{speed:.1f}" if speed else ("Idle" if perf.get("idle") else "Busy"),
+                  "unit": "tok/s last" if speed else "", "sub": f"queue {perf.get('queue', 0)} · {perf.get('total_gens', 0)} generations"},
+        "facts": [f for f in [
+            _fact("Model", name),
+            _fact("Max context", f"{ctx['value']:,}") if isinstance(ctx, dict) and ctx.get("value") else None,
+            _fact("State", "idle" if perf.get("idle") else "generating"),
+            _fact("Queue", perf.get("queue")),
+            _fact("Last decode speed", f"{speed:.1f} tok/s") if speed else None,
+            _fact("Last prefill speed", f"{perf.get('last_process_speed'):.1f} tok/s") if perf.get("last_process_speed") else None,
+            _fact("Last request tokens in / out", f"{perf.get('last_input_count', 0)} / {perf.get('last_token_count', 0)}"),
+            _fact("Uptime", f"{round((perf.get('uptime') or 0) / 60)} min") if perf.get("uptime") else None,
+            _fact("Version", (ver or {}).get("version")) if isinstance(ver, dict) else None,
+        ] if f and f["value"] not in (None, "")],
+        "note": None,
+    }
+
+
+def _live_textgen(port):
+    # modules/api/models.py: /v1/internal/model/info -> model_name, lora_names, loader.
+    st, info = _http_get(port, "/v1/internal/model/info")
+    if st != 200 or not isinstance(info, dict) or "model_name" not in info:
+        return None
+    name = info.get("model_name")
+    return {
+        "served": [name] if name and name != "None" else [],
+        "pulse": {"value": "Loaded" if name and name != "None" else "No model", "sub": name or ""},
+        "facts": [_fact("Model", name), _fact("Loader", info.get("loader") or "–"),
+                  _fact("LoRAs", ", ".join(info.get("lora_names") or []) or "none")],
+        "note": "text-generation-webui publishes no speed or queue figures.",
+    }
+
+
+def _live_localai(port):
+    # core/schema/localai.go SystemInformationResponse: loaded_models[] with
+    # process pid, rss_bytes, memory_percent, cpu_percent.
+    # /system is LocalAI's own; /v1/models alone would also match an MLX
+    # server on the same default port.
+    st, sysinfo = _http_get(port, "/system")
+    if st != 200 or not isinstance(sysinfo, dict) or not ({"backends", "loaded_models"} & set(sysinfo)):
+        return None
+    served = _openai_served(port)
+    loaded = (sysinfo or {}).get("loaded_models") or [] if isinstance(sysinfo, dict) else []
+    _, ver = _http_get(port, "/version")
+    rss = sum(((m.get("process") or {}).get("rss_bytes") or 0) for m in loaded if isinstance(m, dict))
+    return {
+        "served": [s["id"] for s in served or []],
+        "loaded": [{"name": m.get("id"), "context": 0} for m in loaded if isinstance(m, dict)],
+        "pulse": {"value": escape_count(len(loaded), "model") + " loaded", "sub": f"{rss / 1024**3:.1f} GB resident" if rss else ""},
+        "facts": [f for f in [
+            _fact("Loaded", ", ".join(f"{m.get('id')} ({m.get('backend')})" for m in loaded if isinstance(m, dict)) or "none"),
+            _fact("Memory in use", f"{rss / 1024**3:.2f} GB") if rss else None,
+            _fact("CPU", ", ".join(f"{round((m.get('process') or {}).get('cpu_percent') or 0)}%" for m in loaded if isinstance(m, dict))) if loaded else None,
+            _fact("Backends installed", len((sysinfo or {}).get("backends") or [])) if isinstance(sysinfo, dict) else None,
+            _fact("Version", (ver or {}).get("version")) if isinstance(ver, dict) else None,
+        ] if f and f["value"] not in (None, "")],
+        "note": "LocalAI publishes no token speed; memory and CPU are per model process.",
+    }
+
+
+def _live_jan(port):
+    # src-tauri/src/core/server/proxy.rs: the API key is on by default and
+    # only /openapi.json and a few static paths skip it.
+    served = _openai_served(port)
+    st, spec = _http_get(port, "/openapi.json")
+    if served is None and st != 200:
+        return None
+    if served is None:
+        return {"pulse": {"value": "Running", "sub": "API key required"},
+                "facts": [_fact("Models", "hidden behind the API key")],
+                "note": "Jan's local API server has a key on by default. Clear the key in Jan's settings to let Tach list models."}
+    return {"served": [s["id"] for s in served],
+            "pulse": {"value": escape_count(len(served), "model"), "sub": ", ".join(s["id"] for s in served[:2])},
+            "facts": [_fact("Models", ", ".join(s["id"] for s in served) or "none"),
+                      _fact("Backends", ", ".join(sorted({s.get("owned_by") for s in served if s.get("owned_by")})) or "–")],
+            "note": "Jan publishes no speed or queue figures."}
+
+
+def _live_cortex(port):
+    # janhq/cortex.cpp (archived 2025): /v1/models, /v1/models/status/{id},
+    # /v1/hardware.
+    served = _openai_served(port)
+    if served is None:
+        return None
+    running = []
+    for s in served[:12]:
+        st, _ = _http_get(port, f"/v1/models/status/{quote(s['id'], safe='')}", timeout=0.4)
+        if st == 200:
+            running.append(s["id"])
+    _, hw = _http_get(port, "/v1/hardware")
+    ram = (hw or {}).get("ram") if isinstance(hw, dict) else None
+    return {"served": [s["id"] for s in served],
+            "loaded": [{"name": n, "context": 0} for n in running],
+            "pulse": {"value": escape_count(len(running), "model") + " running", "sub": ", ".join(running[:2])},
+            "facts": [f for f in [
+                _fact("Running", ", ".join(running) or "none"),
+                _fact("Installed", len(served)),
+                _fact("RAM available", f"{(ram.get('available') or 0) / 1024:.1f} GB") if isinstance(ram, dict) and ram.get("available") else None,
+            ] if f],
+            "note": "Cortex is archived upstream and publishes no speed figures."}
+
+
+def _live_tabby(port):
+    # tabbyAPI endpoints/core/router.py: /health is open; /v1/model needs a key
+    # (auth is on by default).
+    st, health = _http_get(port, "/health")
+    if not isinstance(health, dict) or health.get("status") not in ("healthy", "unhealthy"):
+        return None
+    st, card = _http_get(port, "/v1/model")
+    if st == 200 and isinstance(card, dict):
+        p = card.get("parameters") or {}
+        return {"served": [card.get("id")],
+                "pulse": {"value": "Loaded", "sub": card.get("id") or ""},
+                "facts": [f for f in [
+                    _fact("Model", card.get("id")),
+                    _fact("Max sequence", f"{p['max_seq_len']:,}") if p.get("max_seq_len") else None,
+                    _fact("Cache", f"{p.get('cache_size') or ''} {p.get('cache_mode') or ''}".strip() or None),
+                    _fact("Draft model", ((p.get("draft") or {}).get("draft_model_name")) if isinstance(p.get("draft"), dict) else None),
+                ] if f and f["value"]],
+                "note": None}
+    issues = health.get("issues") or []
+    return {"pulse": {"value": health["status"].capitalize(), "sub": "API key required for model details"},
+            "facts": [_fact("Health", health["status"]), _fact("Issues", len(issues))],
+            "note": "TabbyAPI needs an API key for model details; auth is on by default."}
+
+
+def _live_openwebui(port):
+    # backend/open_webui/main.py: /api/version and /api/config are public.
+    st, ver = _http_get(port, "/api/version")
+    if st != 200 or not isinstance(ver, dict):
+        return None
+    _, cfg = _http_get(port, "/api/config")
+    feats = (cfg or {}).get("features") or {} if isinstance(cfg, dict) else {}
+    return {"pulse": {"value": "Running", "sub": f"v{ver.get('version')}"},
+            "facts": [f for f in [_fact("Version", ver.get("version")),
+                                  _fact("Name", (cfg or {}).get("name")) if isinstance(cfg, dict) else None,
+                                  _fact("Sign-up open", "yes" if feats.get("enable_signup") else "no") if feats else None] if f and f["value"] is not None],
+            "note": "Open WebUI is a front end with no inference telemetry of its own. Its chats are read from webui.db under Data sources."}
+
+
+def escape_count(n, noun):
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+_ENGINE_READERS = {
+    "lmstudio": (_live_lmstudio, 1234),
+    "vllm": (_live_vllm, 8000),
+    "sglang": (_live_sglang, 30000),
+    "koboldcpp": (_live_kobold, 5001),
+    "textgenwebui": (_live_textgen, 5000),
+    "localai": (_live_localai, 8080),
+    "jan_server": (_live_jan, 1337),
+    "cortex": (_live_cortex, 39281),
+    "tabbyapi": (_live_tabby, 5000),
+    "openwebui_srv": (_live_openwebui, 3000),
+}
+
+
+def _confirmed_ports(eid):
+    """
+    Ports the catalog scan has already fingerprinted as this engine. The live
+    poll runs every few seconds, so it only reads confirmed ports; probing a
+    default port that some unrelated dev server holds would stall every poll.
+    """
+    for srv in get_catalog()["servers"]:
+        if srv["id"] == eid:
+            return [i["port"] for i in srv.get("instances") or [] if i.get("online") and i.get("port")]
+    return []
+
+
+def read_engine_live(eid):
+    reader, _default = _ENGINE_READERS[eid]
+    for port in _confirmed_ports(eid):
+        try:
+            det = reader(port)
+        except Exception:
+            det = None
+        if det:
+            return {"online": True, "port": port, "details": det}
+    return None
+
+
+def _read_mlx(port):
+    """One MLX server's /metrics, shaped for the live panels; None if it is not one."""
+    out = {"online": True, "port": port, "details": None, "requests": [], "apc": None, "summary": None, "last_at": 0.0}
     try:
-        req = urllib.request.Request("http://127.0.0.1:8080/metrics", headers={"User-Agent": "Telemetry"})
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/metrics", headers={"User-Agent": "Telemetry"})
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             data = json.loads(resp.read().decode())
-            status["mlx"]["online"] = True
+            if not _looks_like("mlx", data):
+                return None
             recent_list = data.get("recent") or []
             last_req = data.get("latest") or {}
             summary = data.get("summary") or {}
             server_rt = data.get("server") or {}
             apc = server_rt.get("apc") or {}
-            
-            status["mlx"]["details"] = {
+
+            out["details"] = {
                 "model": server_rt.get("loaded_model") or server_rt.get("language_model") or last_req.get("model") or "Loaded",
                 "decode_tok_s": round(float(last_req.get("decode_tok_s") or summary.get("avg_decode_tok_s") or 0.0), 1),
                 "prefill_tok_s": round(float(last_req.get("prefill_tok_s") or summary.get("avg_request_tok_s") or 0.0), 1),
@@ -277,7 +680,7 @@ def check_live_status():
                 "sliding_first_32": round(float(last_req.get("sliding_decode_tok_s_first_32") or 0.0), 1),
                 "sliding_last_32": round(float(last_req.get("sliding_decode_tok_s_last_32") or 0.0), 1),
             }
-            status["mlx"]["apc"] = {
+            out["apc"] = {
                 "enabled": apc.get("enabled", False),
                 "hit_rate": round(float(apc.get("token_hit_rate", 0.0)) * 100, 1),
                 "matched_tokens": apc.get("matched_tokens", 0),
@@ -285,7 +688,7 @@ def check_live_status():
                 "lookups_hit": apc.get("lookups_hit", 0),
                 "lookups_miss": apc.get("lookups_miss", 0),
             }
-            status["mlx"]["summary"] = {
+            out["summary"] = {
                 "avg_decode_tok_s": round(float(summary.get("avg_decode_tok_s") or 0.0), 1),
                 "avg_request_tok_s": round(float(summary.get("avg_request_tok_s") or 0.0), 1),
                 "requests_completed": summary.get("requests_completed", 0),
@@ -309,13 +712,37 @@ def check_live_status():
                         "finish_reason": r.get("finish_reason", "stop"),
                         "tool_calls": r.get("tool_calls", False),
                     })
-            status["mlx"]["requests"] = cleaned_reqs
+            out["requests"] = cleaned_reqs
+        out["last_at"] = float(last_req.get("timestamp_unix") or 0.0)
     except Exception:
-        pass
+        return None
+    return out
 
-    # Check Ollama (:11434)
+
+def check_live_status():
+    status = {
+        "mlx": {"online": False, "details": None, "requests": [], "apc": None, "summary": None},
+        "ollama": {"online": False, "details": None},
+        "llamacpp": {"online": False, "details": None},
+        "openclaw": {"online": False, "details": None},
+    }
+
+    # MLX: every port it was found on. With several instances up, the panels
+    # follow the one that served a request most recently.
+    mlx_found = [m for m in (_read_mlx(p) for p in engine_ports("mlx", 8080)) if m]
+    if mlx_found:
+        primary = max(mlx_found, key=lambda m: m["last_at"])
+        status["mlx"] = {k: v for k, v in primary.items() if k != "last_at"}
+        status["mlx"]["instances"] = [
+            {"port": m["port"], "model": (m["details"] or {}).get("model"),
+             "in_flight": (m["details"] or {}).get("in_flight", 0)}
+            for m in mlx_found
+        ]
+
+    # Check Ollama (:11434 unless found elsewhere)
+    ollama_port = next(iter(engine_ports("ollama", 11434)), 11434)
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/ps", headers={"User-Agent": "Telemetry"})
+        req = urllib.request.Request(f"http://127.0.0.1:{ollama_port}/api/ps", headers={"User-Agent": "Telemetry"})
         with urllib.request.urlopen(req, timeout=1.2) as resp:
             data = json.loads(resp.read().decode())
             status["ollama"]["online"] = True
@@ -343,7 +770,7 @@ def check_live_status():
     # the inventory the Engines page shows: family, parameter size, quantisation
     # and the context each model was built with.
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "Telemetry"})
+        req = urllib.request.Request(f"http://127.0.0.1:{ollama_port}/api/tags", headers={"User-Agent": "Telemetry"})
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             data = json.loads(resp.read().decode())
             installed = []
@@ -367,36 +794,16 @@ def check_live_status():
     except Exception:
         pass
 
-    # Engines that speak the OpenAI model list can at least tell us what they
-    # are serving, which is more than a reachability dot.
-    for eid, port in (("lmstudio", 1234), ("vllm", 8000), ("localai", 8081), ("jan_server", 1337)):
-        try:
-            req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/models",
-                                         headers={"User-Agent": "Telemetry"})
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
-                data = json.loads(resp.read().decode())
-                ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
-                if ids:
-                    status[eid] = {"online": True, "details": {"served": ids, "count": len(ids)}}
-        except Exception:
-            pass
-
-    # Check llama.cpp (:8077)
-    try:
-        req = urllib.request.Request("http://127.0.0.1:8077/props", headers={"User-Agent": "Telemetry"})
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            data = json.loads(resp.read().decode())
-            status["llamacpp"]["online"] = True
-            gen = data.get("default_generation_settings") or {}
-            model_path = data.get("model_path") or gen.get("model") or ""
-            status["llamacpp"]["details"] = {
-                "context": gen.get("n_ctx", 0),
-                "model": str(model_path).split("/")[-1] if model_path else None,
-                "slots": data.get("total_slots") or gen.get("n_parallel") or 0,
-                "chat_format": data.get("chat_format"),
-            }
-    except Exception:
-        pass
+    # Every other engine, each from the endpoints it documents.
+    for p in _confirmed_ports("llamacpp"):
+        llama = _live_llamacpp(p)
+        if llama:
+            status["llamacpp"] = {"online": True, "port": p, "details": llama}
+            break
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for eid, got in zip(_ENGINE_READERS, pool.map(read_engine_live, _ENGINE_READERS)):
+            if got:
+                status[eid] = got
 
     # Check the OpenClaw gateway (port from openclaw.json, default :18789).
     # The gateway requires a bearer token, so a 401/403 still proves it is up;
@@ -441,16 +848,24 @@ def check_live_status():
         detail["uptime_s"] = gw_detail.get("uptime") or gw_detail.get("uptimeSeconds")
     status["openclaw"]["details"] = detail
 
+    hermes = read_hermes_live()
+    if hermes:
+        status["hermes_gw"] = hermes
+
     return status
 
 
-def count_opencode_sessions():
+def count_opencode_sessions(start_ms=None, end_ms=None):
     conn = get_db_connection()
     if not conn:
         return 0
     try:
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM session")
+        if start_ms or end_ms:
+            c.execute("SELECT COUNT(*) FROM session WHERE time_created >= ? AND time_created <= ?",
+                      (start_ms or 0, end_ms or 1 << 62))
+        else:
+            c.execute("SELECT COUNT(*) FROM session")
         return c.fetchone()[0] or 0
     except Exception:
         return 0
@@ -458,30 +873,57 @@ def count_opencode_sessions():
         conn.close()
 
 
-def get_harness_inventory():
+def get_harness_inventory(query_params=None):
     """
-    Per-source session counts for the sidebar, always computed across every
-    harness regardless of the active filter. Only sources with artifacts on
-    this machine are marked detected; the sidebar hides the rest.
+    Per-source session counts for the sidebar, computed across every harness
+    regardless of the harness filter (picking one source must not zero the
+    others) but within the time window, so the counts match what the page
+    shows. Detection does not depend on the window; the sidebar hides only
+    sources with no artifacts on this machine at all.
     """
-    opencode_n = count_opencode_sessions()
-    openclaw_n = len(get_openclaw_sessions())
-    hermes_n = len(get_hermes_sessions())
-    cline_n = len(get_cline_sessions())
-    roo_n = len(get_roo_sessions())
-    zed_n = len(get_zed_sessions())
-    goose_n = len(get_goose_sessions())
-    lmstudio_n = len(get_lmstudio_sessions())
-    jan_n = len(get_jan_sessions())
-    aider_files = scan_aider_history()
-    continue_files = scan_continue_sessions()
+    start_ms, end_ms = resolve_window(query_params)
+
+    def n(rows):
+        if not (start_ms or end_ms):
+            return len(rows)
+        return sum(1 for r in rows
+                   if (not start_ms or (r.get("time_created") or 0) >= start_ms)
+                   and (not end_ms or (r.get("time_created") or 0) <= end_ms))
+
+    def files(paths):
+        if not (start_ms or end_ms):
+            return paths
+        out = []
+        for p in paths:
+            try:
+                m = int(p.stat().st_mtime * 1000)
+            except OSError:
+                continue
+            if (not start_ms or m >= start_ms) and (not end_ms or m <= end_ms):
+                out.append(p)
+        return out
+
+    opencode_n = count_opencode_sessions(start_ms, end_ms)
+    openclaw_n = n(get_openclaw_sessions())
+    hermes_n = n(get_hermes_sessions())
+    cline_n = n(get_cline_sessions())
+    roo_n = n(get_roo_sessions())
+    zed_n = n(get_zed_sessions())
+    goose_n = n(get_goose_sessions())
+    lmstudio_n = n(get_lmstudio_sessions())
+    jan_n = n(get_jan_sessions())
+    crush_n = n(get_crush_sessions())
+    allm_n = n(get_anythingllm_sessions())
+    owui_n = n(get_openwebui_sessions())
+    aider_files = files(scan_aider_history())
+    continue_files = files(scan_continue_sessions())
 
     catalog = {c["id"]: c for c in get_catalog()["sources"]}
 
     rows = [
         {"id": "all", "name": "All Sources", "icon": "globe", "detected": True,
          "count": (opencode_n + openclaw_n + hermes_n + cline_n + roo_n + zed_n
-                   + goose_n + lmstudio_n + jan_n + len(aider_files) + len(continue_files))},
+                   + goose_n + lmstudio_n + jan_n + crush_n + allm_n + owui_n + len(aider_files) + len(continue_files))},
         {"id": "opencode", "name": "OpenCode", "icon": "opencode",
          "detected": catalog.get("opencode", {}).get("detected", False),
          "path": sanitize_path(str(CONFIG["opencode_db"])), "count": opencode_n},
@@ -511,10 +953,19 @@ def get_harness_inventory():
         {"id": "jan", "name": "Jan", "icon": "atom",
          "detected": jan_n > 0 or catalog.get("jan", {}).get("detected", False),
          "path": catalog.get("jan", {}).get("path"), "count": jan_n},
+        {"id": "crush", "name": "Crush", "icon": "shapes",
+         "detected": crush_n > 0 or bool(crush_dbs()),
+         "path": sanitize_path(str(crush_dbs()[0])) if crush_dbs() else None, "count": crush_n},
+        {"id": "anythingllm", "name": "AnythingLLM", "icon": "libraryBig",
+         "detected": allm_n > 0 or bool(anythingllm_dbs()),
+         "path": sanitize_path(str(anythingllm_dbs()[0])) if anythingllm_dbs() else None, "count": allm_n},
+        {"id": "openwebui", "name": "Open WebUI", "icon": "globe",
+         "detected": owui_n > 0 or bool(openwebui_dbs()),
+         "path": sanitize_path(str(openwebui_dbs()[0])) if openwebui_dbs() else None, "count": owui_n},
         {"id": "aider", "name": "Aider", "icon": "squareTerminal",
-         "detected": len(aider_files) > 0, "count": len(aider_files)},
+         "detected": bool(scan_aider_history()), "count": len(aider_files)},
         {"id": "continue", "name": "Continue", "icon": "arrows",
-         "detected": len(continue_files) > 0, "count": len(continue_files)},
+         "detected": bool(scan_continue_sessions()), "count": len(continue_files)},
     ]
 
     # Anything else the catalog found on disk is surfaced as detected but not
@@ -524,7 +975,7 @@ def get_harness_inventory():
             continue
         rows.append({
             "id": c["id"], "name": c["name"], "icon": c["icon"],
-            "detected": True, "readable": False, "path": c["path"], "count": 0,
+            "detected": True, "readable": False, "path": c["path"], "count": 0, "reason": c.get("reason"),
         })
 
     return rows
@@ -555,63 +1006,33 @@ def resolve_window(query_params):
         delta = WINDOW_MS.get(window)
         return (now_ms - delta, now_ms) if delta else (None, None)
 
-    start_ms = end_ms = None
-    date_from = query_params.get("from", [""])[0]
-    date_to = query_params.get("to", [""])[0]
-    if date_from:
+    # The custom picker is a datetime-local input (YYYY-MM-DDTHH:MM); a bare
+    # date is also accepted and then covers the whole day.
+    def parse(value, end_of_day):
+        if not value:
+            return None
         try:
-            start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
+            dt = datetime.fromisoformat(value)
         except ValueError:
-            pass
-    if date_to:
-        try:
-            end_ms = int(datetime.strptime(date_to, "%Y-%m-%d")
-                         .replace(hour=23, minute=59, second=59).timestamp() * 1000)
-        except ValueError:
-            pass
+            return None
+        if len(value) <= 10 and end_of_day:
+            dt = dt.replace(hour=23, minute=59, second=59)
+        return int(dt.timestamp() * 1000)
+
+    start_ms = parse(query_params.get("from", [""])[0], False)
+    end_ms = parse(query_params.get("to", [""])[0], True)
+    # Callers test "start and end" or "start only"; filling the open side of a
+    # one-sided range keeps "until X" from being silently ignored.
+    if start_ms or end_ms:
+        start_ms = start_ms or 1
+        end_ms = end_ms or now_ms + 365 * 24 * 60 * 60 * 1000
     return start_ms, end_ms
 
 
 def get_all_stats(query_params=None):
     harness_filter = query_params.get("harness", [""])[0].lower() if query_params else ""
 
-    # Time window calculation
-    start_ms = None
-    end_ms = None
-    now_ms = int(time.time() * 1000)
-
-    if query_params:
-        window = query_params.get("window", [""])[0]
-        date_from = query_params.get("from", [""])[0]
-        date_to = query_params.get("to", [""])[0]
-        if window:
-            window_map = {
-                "10m": 10 * 60 * 1000,
-                "1h": 60 * 60 * 1000,
-                "6h": 6 * 60 * 60 * 1000,
-                "12h": 12 * 60 * 60 * 1000,
-                "1d": 24 * 60 * 60 * 1000,
-                "3d": 3 * 24 * 60 * 60 * 1000,
-                "7d": 7 * 24 * 60 * 60 * 1000,
-                "14d": 14 * 24 * 60 * 60 * 1000,
-                "30d": 30 * 24 * 60 * 60 * 1000,
-                "90d": 90 * 24 * 60 * 60 * 1000,
-            }
-            delta_ms = window_map.get(window)
-            if delta_ms:
-                start_ms = now_ms - delta_ms
-                end_ms = now_ms
-        else:
-            if date_from:
-                try:
-                    start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
-                except ValueError:
-                    pass
-            if date_to:
-                try:
-                    end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp() * 1000)
-                except ValueError:
-                    pass
+    start_ms, end_ms = resolve_window(query_params)
 
     # If a specific external harness is selected (e.g. Aider, OpenClaw, Continue)
     if harness_filter and harness_filter not in ["opencode", "all"]:
@@ -626,6 +1047,12 @@ def get_all_stats(query_params=None):
             harness_sessions = get_roo_sessions()
         elif harness_filter == "zed":
             harness_sessions = get_zed_sessions()
+        elif harness_filter == "crush":
+            harness_sessions = get_crush_sessions()
+        elif harness_filter == "anythingllm":
+            harness_sessions = get_anythingllm_sessions()
+        elif harness_filter == "openwebui":
+            harness_sessions = get_openwebui_sessions()
         elif harness_filter == "goose":
             harness_sessions = get_goose_sessions()
         elif harness_filter == "lmstudio":
@@ -697,7 +1124,7 @@ def get_all_stats(query_params=None):
             "tps_buckets": {"< 15": 0, "15 - 30": 0, "30 - 45": 0, "45 - 60": 0, "60+": 0},
             "duration_buckets": {"< 1 min": 0, "1 - 5 mins": 0, "5 - 15 mins": 0, "15 - 30 mins": 0, "> 30 mins": 0},
             "directories": directories,
-            "harnesses": get_harness_inventory(),
+            "harnesses": get_harness_inventory(query_params),
             "live": check_live_status(),
             "system_info": {
                 "opencode_db": sanitize_path(str(CONFIG["opencode_db"])),
@@ -1011,7 +1438,7 @@ def get_all_stats(query_params=None):
         turn_summary = {}
 
     # Discovered Harnesses
-    harnesses = get_harness_inventory()
+    harnesses = get_harness_inventory(query_params)
 
     return {
         "turn_metrics": turn_summary,
@@ -1566,40 +1993,7 @@ def get_sessions(query_params):
     window = query_params.get("window", [""])[0]  # e.g. 10m, 1h, 6h, 1d, 3d, 7d, 30d
     sort_by = query_params.get("sort", ["latest"])[0]
 
-    # Compute start_ms / end_ms from window presets or explicit date range
-    now_ms = int(time.time() * 1000)
-    start_ms = None
-    end_ms = None
-
-    if window:
-        window_map = {
-            "10m": 10 * 60 * 1000,
-            "1h": 60 * 60 * 1000,
-            "6h": 6 * 60 * 60 * 1000,
-            "12h": 12 * 60 * 60 * 1000,
-            "1d": 24 * 60 * 60 * 1000,
-            "3d": 3 * 24 * 60 * 60 * 1000,
-            "7d": 7 * 24 * 60 * 60 * 1000,
-            "14d": 14 * 24 * 60 * 60 * 1000,
-            "30d": 30 * 24 * 60 * 60 * 1000,
-            "90d": 90 * 24 * 60 * 60 * 1000,
-        }
-        delta_ms = window_map.get(window)
-        if delta_ms:
-            start_ms = now_ms - delta_ms
-            end_ms = now_ms
-    else:
-        if date_from:
-            try:
-                start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
-            except ValueError:
-                pass
-        if date_to:
-            try:
-                end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(
-                    hour=23, minute=59, second=59).timestamp() * 1000)
-            except ValueError:
-                pass
+    start_ms, end_ms = resolve_window(query_params)
 
     all_raw_sessions = []
 
@@ -1738,7 +2132,9 @@ def get_sessions(query_params):
 
     for _hid, _fetch in (("cline", get_cline_sessions), ("roo", get_roo_sessions),
                          ("zed", get_zed_sessions), ("goose", get_goose_sessions),
-                         ("lmstudio", get_lmstudio_sessions), ("jan", get_jan_sessions)):
+                         ("lmstudio", get_lmstudio_sessions), ("jan", get_jan_sessions),
+                         ("crush", get_crush_sessions), ("anythingllm", get_anythingllm_sessions),
+                         ("openwebui", get_openwebui_sessions)):
         if not harness_filter or harness_filter in [_hid, "all"]:
             all_raw_sessions.extend(_fetch())
 
@@ -2718,6 +3114,319 @@ def get_zed_sessions(limit=400):
 
 
 # ------------------------------------------------------------
+# Crush (charmbracelet/crush)
+# One SQLite database per project at <project>/.crush/crush.db. Crush keeps
+# an index of every project it has opened in <data>/crush/projects.json
+# (internal/projects/projects.go), where <data> is $CRUSH_GLOBAL_DATA,
+# $XDG_DATA_HOME, %LOCALAPPDATA% or ~/.local/share (internal/config/load.go).
+# sessions carries token totals; messages.parts is a JSON list of
+# {"type", "data"} parts. Timestamps are Unix seconds.
+# ------------------------------------------------------------
+
+def _crush_data_dir():
+    env = os.environ.get("CRUSH_GLOBAL_DATA")
+    if env:
+        return Path(env)
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "crush"
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or (_home() / "AppData" / "Local")) / "crush"
+    return _home() / ".local" / "share" / "crush"
+
+
+def crush_dbs():
+    found = []
+    index = _read_json(_crush_data_dir() / "projects.json")
+    for p in ((index or {}).get("projects") or []) if isinstance(index, dict) else []:
+        if not isinstance(p, dict):
+            continue
+        for d in (p.get("data_dir"), os.path.join(p.get("path") or "", ".crush")):
+            if d and (Path(d) / "crush.db").exists():
+                found.append(Path(d) / "crush.db")
+                break
+    local = Path.cwd() / ".crush" / "crush.db"
+    if local.exists():
+        found.append(local)
+    seen, uniq = set(), []
+    for f in found:
+        key = str(f.resolve())
+        if key not in seen:
+            seen.add(key)
+            uniq.append(f)
+    return uniq
+
+
+_CRUSH_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_crush_sessions(limit=400):
+    now = time.time()
+    if _CRUSH_CACHE["rows"] is not None and (now - _CRUSH_CACHE["at"]) < 45:
+        return _CRUSH_CACHE["rows"]
+    rows = []
+    for db in crush_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1)
+        except Exception:
+            continue
+        try:
+            cols = _table_columns(conn, "sessions")
+            if "id" not in cols:
+                continue
+            c = conn.cursor()
+            want = [k for k in ("id", "parent_session_id", "title", "message_count", "prompt_tokens",
+                                "completion_tokens", "cost", "created_at", "updated_at") if k in cols]
+            c.execute(f"SELECT {', '.join(want)} FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,))
+            sessions = [dict(zip(want, r)) for r in c.fetchall()]
+
+            # Generation time and model come from the assistant messages:
+            # finished_at - created_at is how long each reply took.
+            mcols = _table_columns(conn, "messages")
+            per = {}
+            if {"session_id", "role", "created_at", "finished_at"} <= mcols:
+                sel = ["session_id", "role", "created_at", "finished_at", "parts"]
+                sel += [k for k in ("model", "provider") if k in mcols]
+                c.execute(f"SELECT {', '.join(sel)} FROM messages")
+                for r in c.fetchall():
+                    m = dict(zip(sel, r))
+                    agg = per.setdefault(m["session_id"], {"gen_s": 0.0, "tools": False, "model": None, "provider": None})
+                    if m["role"] == "assistant":
+                        if m.get("finished_at") and m.get("created_at") and m["finished_at"] >= m["created_at"]:
+                            agg["gen_s"] += m["finished_at"] - m["created_at"]
+                        agg["model"] = m.get("model") or agg["model"]
+                        agg["provider"] = m.get("provider") or agg["provider"]
+                        if '"tool_call"' in (m.get("parts") or ""):
+                            agg["tools"] = True
+            for s in sessions:
+                agg = per.get(s["id"], {})
+                rows.append(_session_record(
+                    id=f"crush_{s['id']}",
+                    harness="crush",
+                    title=s.get("title") or "Crush session",
+                    directory=str(db.parent.parent),
+                    model=agg.get("model"),
+                    provider=agg.get("provider") or "crush",
+                    time_created=_ms(s.get("created_at")),
+                    duration_s=agg.get("gen_s") or 0.0,
+                    tokens_input=s.get("prompt_tokens") or 0,
+                    tokens_output=s.get("completion_tokens") or 0,
+                    message_count=s.get("message_count") or 0,
+                    has_tool_calls=agg.get("tools"),
+                    source_path=db,
+                ))
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    _CRUSH_CACHE.update(at=now, rows=rows)
+    return rows
+
+
+# ------------------------------------------------------------
+# AnythingLLM
+# Desktop storage (docs.anythingllm.com/installation-desktop/storage):
+#   macOS   ~/Library/Application Support/anythingllm-desktop/storage/anythingllm.db
+#   Linux   ~/.config/anythingllm-desktop/storage/anythingllm.db
+#   Windows %APPDATA%/anythingllm-desktop/storage/anythingllm.db
+# workspace_chats holds one prompt/response pair per row; response is a JSON
+# string whose "metrics" has prompt_tokens, completion_tokens, duration (s)
+# and model (server/utils/helpers/chat/LLMPerformanceMonitor.js). Threads
+# group chats; unthreaded chats belong to the workspace itself. Prisma
+# stores DateTime as epoch milliseconds.
+# ------------------------------------------------------------
+
+def anythingllm_dbs():
+    h = _home()
+    cands = [h / "Library" / "Application Support" / "anythingllm-desktop" / "storage" / "anythingllm.db",
+             h / ".config" / "anythingllm-desktop" / "storage" / "anythingllm.db"]
+    if os.environ.get("APPDATA"):
+        cands.append(Path(os.environ["APPDATA"]) / "anythingllm-desktop" / "storage" / "anythingllm.db")
+    if os.environ.get("STORAGE_DIR"):
+        cands.append(Path(os.environ["STORAGE_DIR"]) / "anythingllm.db")
+    return [c for c in cands if c.exists()]
+
+
+_ALLM_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_anythingllm_sessions(limit=2000):
+    now = time.time()
+    if _ALLM_CACHE["rows"] is not None and (now - _ALLM_CACHE["at"]) < 45:
+        return _ALLM_CACHE["rows"]
+    rows = []
+    for db in anythingllm_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1)
+        except Exception:
+            continue
+        try:
+            if "response" not in _table_columns(conn, "workspace_chats"):
+                continue
+            c = conn.cursor()
+            c.execute("SELECT id, name, chatProvider, chatModel FROM workspaces")
+            workspaces = {r[0]: {"name": r[1], "provider": r[2], "model": r[3]} for r in c.fetchall()}
+            threads = {}
+            if _table_columns(conn, "workspace_threads"):
+                c.execute("SELECT id, name FROM workspace_threads")
+                threads = {r[0]: r[1] for r in c.fetchall()}
+            c.execute("SELECT workspaceId, thread_id, response, createdAt FROM workspace_chats "
+                      "ORDER BY createdAt DESC LIMIT ?", (limit,))
+            groups = {}
+            for ws_id, thread_id, response, created in c.fetchall():
+                key = (ws_id, thread_id)
+                g = groups.setdefault(key, {"first": None, "turns": 0, "in": 0, "out": 0, "dur": 0.0, "model": None, "provider": None})
+                ts = _ms(created)
+                g["first"] = ts if g["first"] is None else min(g["first"], ts)
+                g["turns"] += 1
+                try:
+                    metrics = (json.loads(response or "{}") or {}).get("metrics") or {}
+                except Exception:
+                    metrics = {}
+                g["in"] += int(metrics.get("prompt_tokens") or 0)
+                g["out"] += int(metrics.get("completion_tokens") or 0)
+                g["dur"] += float(metrics.get("duration") or 0.0)
+                g["model"] = g["model"] or metrics.get("model")
+                g["provider"] = g["provider"] or metrics.get("provider")
+            for (ws_id, thread_id), g in groups.items():
+                ws = workspaces.get(ws_id, {})
+                rows.append(_session_record(
+                    id=f"anythingllm_{ws_id}_{thread_id or 'main'}",
+                    harness="anythingllm",
+                    title=threads.get(thread_id) or ws.get("name") or "AnythingLLM chat",
+                    model=g["model"] or ws.get("model"),
+                    provider=g["provider"] or ws.get("provider") or "anythingllm",
+                    time_created=g["first"],
+                    duration_s=g["dur"],
+                    tokens_input=g["in"],
+                    tokens_output=g["out"],
+                    message_count=g["turns"] * 2,
+                    source_path=db,
+                ))
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    _ALLM_CACHE.update(at=now, rows=rows)
+    return rows
+
+
+# ------------------------------------------------------------
+# Open WebUI
+# SQLite at $DATA_DIR/webui.db (backend/open_webui/env.py). Newer releases
+# write one row per message to chat_message, with model_id and a usage JSON
+# normalised to input_tokens/output_tokens but keeping the provider's own
+# keys (models/chat_messages.py). Older ones only have the chat table, whose
+# JSON "chat" column holds history.messages. Encrypted (sqlcipher) or
+# Postgres installs are not readable and are skipped.
+# ------------------------------------------------------------
+
+def openwebui_dbs():
+    h = _home()
+    cands = [h / ".open-webui" / "webui.db", h / "open-webui" / "backend" / "data" / "webui.db",
+             h / ".local" / "share" / "open-webui" / "webui.db"]
+    if os.environ.get("DATA_DIR"):
+        cands.insert(0, Path(os.environ["DATA_DIR"]) / "webui.db")
+    # pip installs keep data inside the package.
+    for lib in (h / ".local" / "lib", Path("/opt/homebrew/lib"), Path("/usr/local/lib")):
+        try:
+            cands.extend(lib.glob("python3*/site-packages/open_webui/data/webui.db"))
+        except Exception:
+            pass
+    seen, out = set(), []
+    for c in cands:
+        if c.exists() and str(c) not in seen:
+            seen.add(str(c))
+            out.append(c)
+    return out
+
+
+def _owui_usage(u):
+    if isinstance(u, str):
+        try:
+            u = json.loads(u)
+        except Exception:
+            u = None
+    if not isinstance(u, dict):
+        return 0, 0
+    tin = u.get("input_tokens", u.get("prompt_tokens", u.get("prompt_eval_count", u.get("prompt_n"))))
+    tout = u.get("output_tokens", u.get("completion_tokens", u.get("eval_count", u.get("predicted_n"))))
+    return int(tin or 0), int(tout or 0)
+
+
+_OWUI_CACHE = {"at": 0.0, "rows": None}
+
+
+def get_openwebui_sessions(limit=400):
+    now = time.time()
+    if _OWUI_CACHE["rows"] is not None and (now - _OWUI_CACHE["at"]) < 45:
+        return _OWUI_CACHE["rows"]
+    rows = []
+    for db in openwebui_dbs():
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1)
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")  # fails when encrypted
+        except Exception:
+            continue
+        try:
+            if "chat" not in _table_columns(conn, "chat"):
+                continue
+            c = conn.cursor()
+            c.execute("SELECT id, title, chat, created_at, updated_at FROM chat ORDER BY updated_at DESC LIMIT ?", (limit,))
+            chats = c.fetchall()
+            per_msg = {}
+            if {"chat_id", "usage"} <= _table_columns(conn, "chat_message"):
+                c.execute("SELECT chat_id, role, model_id, usage FROM chat_message")
+                for chat_id, role, model_id, usage in c.fetchall():
+                    agg = per_msg.setdefault(chat_id, {"n": 0, "in": 0, "out": 0, "model": None})
+                    agg["n"] += 1
+                    tin, tout = _owui_usage(usage)
+                    agg["in"] += tin
+                    agg["out"] += tout
+                    if role == "assistant" and model_id:
+                        agg["model"] = model_id
+            for chat_id, title, blob, created, updated in chats:
+                agg = per_msg.get(chat_id)
+                model = None
+                if agg is None:
+                    agg = {"n": 0, "in": 0, "out": 0, "model": None}
+                    try:
+                        data = json.loads(blob) if isinstance(blob, str) else (blob or {})
+                    except Exception:
+                        data = {}
+                    msgs = ((data.get("history") or {}).get("messages") or {}).values() if isinstance(data, dict) else []
+                    for m in msgs:
+                        if not isinstance(m, dict):
+                            continue
+                        agg["n"] += 1
+                        tin, tout = _owui_usage(m.get("usage") or (m.get("info") or {}).get("usage"))
+                        agg["in"] += tin
+                        agg["out"] += tout
+                        if m.get("role") == "assistant" and m.get("model"):
+                            agg["model"] = m["model"]
+                    if not agg["model"] and isinstance(data, dict) and data.get("models"):
+                        model = (data.get("models") or [None])[0]
+                rows.append(_session_record(
+                    id=f"openwebui_{chat_id}",
+                    harness="openwebui",
+                    title=title or "Open WebUI chat",
+                    model=agg["model"] or model,
+                    provider="openwebui",
+                    time_created=_ms(created),
+                    tokens_input=agg["in"],
+                    tokens_output=agg["out"],
+                    message_count=agg["n"],
+                    source_path=db,
+                ))
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    _OWUI_CACHE.update(at=now, rows=rows)
+    return rows
+
+
+# ------------------------------------------------------------
 # Goose
 # Up to 1.10 each session was a .jsonl file; newer builds import those into
 # sessions.db. Both are read, and the database wins when a session appears in
@@ -3045,11 +3754,11 @@ def source_catalog():
          "paths": [hh / "state.db" for hh in resolve_hermes_homes()]
                   or [h / ".hermes" / "state.db", h / ".hermes"]},
 
-        # --- Coding agents detected but not parsed yet ---
+        # --- Coding agents ---
         {"id": "goose",     "name": "Goose",       "icon": "bird", "kind": "agent", "readable": True,
          "paths": [xdg / "goose" / "sessions"], "glob": "*.jsonl"},
-        {"id": "crush",     "name": "Crush",       "icon": "shapes", "kind": "agent", "readable": False,
-         "paths": [xdg / "crush", h / ".crush"]},
+        {"id": "crush",     "name": "Crush",       "icon": "shapes", "kind": "agent", "readable": True,
+         "paths": crush_dbs() or [_crush_data_dir() / "projects.json"]},
         {"id": "cline",     "name": "Cline",       "icon": "cline", "kind": "agent", "readable": True,
          "paths": [app / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "tasks",
                    h / ".vscode" / "globalStorage" / "saoudrizwan.claude-dev"]},
@@ -3061,21 +3770,361 @@ def source_catalog():
         # --- Desktop chat apps ---
         {"id": "lmstudio_chat", "name": "LM Studio chats", "icon": "lmstudio", "kind": "chat", "readable": True,
          "paths": [h / ".lmstudio" / "conversations", h / ".cache" / "lm-studio" / "conversations"]},
-        {"id": "openwebui", "name": "Open WebUI",  "icon": "globe", "kind": "chat", "readable": False,
-         "paths": [h / ".open-webui" / "webui.db", h / "open-webui" / "backend" / "data" / "webui.db"]},
+        {"id": "openwebui", "name": "Open WebUI",  "icon": "globe", "kind": "chat", "readable": True,
+         "paths": openwebui_dbs() or [h / ".open-webui" / "webui.db"]},
         {"id": "librechat", "name": "LibreChat",   "icon": "messagesSquare", "kind": "chat", "readable": False,
+         "reason": "Stores chats in MongoDB, which Tach cannot read without a database driver.",
          "paths": [h / "LibreChat", app / "LibreChat"]},
         {"id": "jan",       "name": "Jan",         "icon": "atom", "kind": "chat", "readable": True,
          "paths": [h / "jan" / "threads", app / "jan" / "threads"]},
-        {"id": "anythingllm", "name": "AnythingLLM", "icon": "libraryBig", "kind": "chat", "readable": False,
-         "paths": [app / "anythingllm-desktop"]},
+        {"id": "anythingllm", "name": "AnythingLLM", "icon": "libraryBig", "kind": "chat", "readable": True,
+         "paths": anythingllm_dbs() or [app / "anythingllm-desktop" / "storage" / "anythingllm.db"]},
         {"id": "msty",      "name": "Msty",        "icon": "hexagon", "kind": "chat", "readable": False,
+         "reason": "Uses a SQLite msty.db whose schema is not published; a reader needs a real install to map it.",
          "paths": [app / "Msty"]},
         {"id": "chatbox",   "name": "Chatbox",     "icon": "box", "kind": "chat", "readable": False,
+         "reason": "Keeps conversations in the app's browser storage (IndexedDB/LevelDB), which cannot be read from outside it.",
          "paths": [app / "xyz.chatboxapp.app"]},
         {"id": "gpt4all",   "name": "GPT4All",     "icon": "blocks", "kind": "chat", "readable": False,
+         "reason": "Its .chat files record no timestamps or token counts, so there is nothing to measure.",
          "paths": [app / "nomic.ai" / "GPT4All", h / ".config" / "nomic.ai" / "GPT4All"]},
     ]
+
+
+# ============================================================
+# SERVER DISCOVERY
+# Default ports are only a guess: MLX servers are routinely started on :8081,
+# :8082 and so on, and several engines default to the same port. Discovery
+# reads what is actually listening, recognises the engine from the owning
+# process, and the user can pin extra ports in the config file for anything
+# discovery cannot name.
+# ============================================================
+
+CONFIG_PATH = Path(os.environ.get("TACH_CONFIG") or (Path.home() / ".config" / "tach" / "config.json"))
+
+# Substrings of a process command line that identify the engine behind it.
+_PROCESS_HINTS = (
+    ("mlx", ("mlx_lm.server", "mlx_vlm.server", "mlx_lm server", "mlx_vlm server", "mlx-lm", "mlx_lm", "mlx_vlm")),
+    # "ollama serve" only: the Ollama.app shell and model runners listen on
+    # their own ports too, and neither is the API.
+    ("ollama", ("ollama serve",)),
+    ("llamacpp", ("llama-server", "llama_cpp.server")),
+    ("vllm", ("vllm",)),
+    ("sglang", ("sglang",)),
+    ("koboldcpp", ("koboldcpp",)),
+    ("lmstudio", ("lm studio", "lmstudio")),
+    ("localai", ("local-ai",)),
+    ("tabbyapi", ("tabbyapi",)),
+    ("textgenwebui", ("text-generation-webui",)),
+    ("cortex", ("cortex-server", "cortexcpp")),
+)
+
+_LOOPBACK_HOSTS = {"*", "127.0.0.1", "localhost", "0.0.0.0", "[::]", "[::1]", "::", "::1"}
+
+
+def load_user_config():
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_user_config(cfg):
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG_PATH.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, CONFIG_PATH)
+
+
+def configured_ports():
+    """{engine_id: [port, ...]} from the config file, validated."""
+    raw = (load_user_config().get("servers") or {})
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for eid, ports in raw.items():
+        if not isinstance(ports, list):
+            continue
+        clean = [p for p in ports if isinstance(p, int) and 0 < p < 65536]
+        if clean:
+            out[str(eid)] = clean
+    return out
+
+
+def _listening_processes():
+    """
+    [(port, pid, command line)] for every TCP listener reachable on loopback.
+    lsof ships with macOS and most Linux installs; without it discovery is
+    skipped and only default and configured ports are probed.
+    """
+    try:
+        raw = subprocess.run(
+            ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+    except Exception:
+        return []
+
+    listeners = []
+    pid = None
+    for line in raw.splitlines():
+        if line.startswith("p"):
+            pid = int(line[1:]) if line[1:].isdigit() else None
+        elif line.startswith("n") and pid:
+            host, _, port = line[1:].rpartition(":")
+            if port.isdigit() and host in _LOOPBACK_HOSTS:
+                listeners.append((int(port), pid))
+
+    pids = sorted({p for _, p in listeners})
+    commands = {}
+    if pids:
+        try:
+            ps = subprocess.run(
+                ["ps", "-o", "pid=,command=", "-p", ",".join(map(str, pids))],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+            for row in ps.splitlines():
+                head, _, cmd = row.strip().partition(" ")
+                if head.isdigit():
+                    commands[int(head)] = cmd.strip()
+        except Exception:
+            pass
+
+    seen = set()
+    out = []
+    for port, p in listeners:
+        if port in seen:
+            continue
+        seen.add(port)
+        out.append((port, p, commands.get(p, "")))
+    return out
+
+
+def _engine_for_command(cmd):
+    low = cmd.lower()
+    for eid, needles in _PROCESS_HINTS:
+        if any(n in low for n in needles):
+            return eid
+    return None
+
+
+_DISCOVERY_CACHE = {"at": 0.0, "data": None}
+
+
+def discover_servers(force=False):
+    """
+    {engine_id: [port, ...]} for engines recognised on a listening port.
+
+    Named processes are trusted; an unnamed Python listener is claimed for MLX
+    only if its /metrics answers in the MLX shape, since custom MLX servers are
+    often launched as a plain script. Cached because /api/live polls often.
+    """
+    now = time.time()
+    if not force and _DISCOVERY_CACHE["data"] is not None and (now - _DISCOVERY_CACHE["at"]) < 20:
+        return _DISCOVERY_CACHE["data"]
+
+    found = {}
+    for port, _pid, cmd in _listening_processes():
+        if port == PORT:
+            continue
+        eid = _engine_for_command(cmd)
+        if eid is None and "python" in cmd.lower():
+            if _probe_server(port, "/metrics", kind="mlx")[0]:
+                eid = "mlx"
+        if eid:
+            found.setdefault(eid, []).append(port)
+    for ports in found.values():
+        ports.sort()
+
+    _DISCOVERY_CACHE["at"] = now
+    _DISCOVERY_CACHE["data"] = found
+    return found
+
+
+def hermes_gateway_running():
+    """
+    The Hermes gateway talks to its CLI over a Unix socket and opens no TCP
+    port unless its optional API server is enabled, so a port probe reports a
+    running gateway as offline. Its own state file, plus a live pid, is the
+    reliable signal.
+    """
+    for home in resolve_hermes_homes():
+        try:
+            with open(home / "gateway_state.json", "r", encoding="utf-8") as f:
+                st = json.load(f)
+        except Exception:
+            continue
+        pid = st.get("pid")
+        if st.get("gateway_state") != "running" or not isinstance(pid, int):
+            continue
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            pass  # exists, owned by someone else
+        except OSError:
+            continue
+        return {"pid": pid, "version": st.get("code_version"),
+                "platforms": sorted((st.get("platforms") or {}).keys()),
+                "active_agents": st.get("active_agents", 0)}
+    return None
+
+
+def _pid_alive(pid):
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _iso_to_epoch(value):
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except Exception:
+        return None
+
+
+def read_hermes_live():
+    """
+    What Hermes is doing right now, from the files it keeps current: the
+    gateway's heartbeat and lifecycle, the CLI's active-session registry, turn
+    leases (a turn in flight holds one), and per-session counters in state.db.
+    None when no Hermes home exists.
+    """
+    homes = [hh for hh in resolve_hermes_homes() if (hh / "state.db").exists()]
+    if not homes:
+        return None
+    home = homes[0]
+    now = time.time()
+
+    gw = hermes_gateway_running()
+    gateway = None
+    if gw:
+        beat = _read_json(home / "state" / "gateway.heartbeat") or {}
+        life = _read_json(home / "state" / "gateway.lifecycle.json") or {}
+        started = life.get("start_time") or beat.get("start_time")
+        beat_at = _iso_to_epoch(beat.get("updated_at"))
+        tick = None
+        try:
+            tick = float((home / "cron" / "ticker_last_success").read_text().strip()[:18])
+        except Exception:
+            pass
+        gateway = dict(gw)
+        gateway.update({
+            "uptime_s": round(now - started) if started else None,
+            "heartbeat_age_s": round(now - beat_at) if beat_at else None,
+            "cron_tick_age_s": round(now - tick) if tick else None,
+        })
+
+    registry = _read_json(home / "runtime" / "active_sessions.json") or {}
+    live_entries = [e for e in (registry.get("entries") or [])
+                    if isinstance(e, dict) and _pid_alive(e.get("pid"))]
+
+    active, today = [], None
+    try:
+        conn = sqlite3.connect(f"file:{home / 'state.db'}?mode=ro", uri=True, timeout=1)
+    except Exception:
+        conn = None
+    if conn:
+        try:
+            c = conn.cursor()
+            cols = _table_columns(conn, "sessions")
+            leases = {}
+            if _table_columns(conn, "session_turn_leases"):
+                c.execute("SELECT conversation_id, acquired_at, expires_at FROM session_turn_leases WHERE expires_at > ?", (now,))
+                leases = {r[0]: r[1] for r in c.fetchall()}
+            has_usage = bool(_table_columns(conn, "session_model_usage"))
+
+            want = [k for k in ("title", "source", "model", "started_at", "message_count", "tool_call_count",
+                                "api_call_count", "input_tokens", "output_tokens", "cache_read_tokens",
+                                "reasoning_tokens", "last_activity_at", "last_activity_description", "cwd")
+                    if k in cols]
+            for e in live_entries:
+                sid = e.get("session_id")
+                c.execute(f"SELECT {', '.join(want)} FROM sessions WHERE id = ?", (sid,))
+                row = c.fetchone()
+                if not row:
+                    continue
+                rec = dict(zip(want, row))
+                endpoint = None
+                if has_usage:
+                    c.execute("SELECT billing_base_url FROM session_model_usage WHERE session_id = ? "
+                              "ORDER BY last_seen DESC LIMIT 1", (sid,))
+                    r = c.fetchone()
+                    endpoint = (r[0] or "").rstrip("/") if r else None
+                active.append({
+                    "session_id": sid,
+                    "surface": e.get("surface") or rec.get("source"),
+                    "pid": e.get("pid"),
+                    "title": rec.get("title"),
+                    "model": rec.get("model"),
+                    "cwd": sanitize_path(rec.get("cwd") or ""),
+                    "endpoint": endpoint,
+                    "turn_started_at": leases.get(sid),
+                    "activity": rec.get("last_activity_description"),
+                    "activity_age_s": round(now - rec["last_activity_at"]) if rec.get("last_activity_at") else None,
+                    "age_s": round(now - rec["started_at"]) if rec.get("started_at") else None,
+                    "messages": rec.get("message_count") or 0,
+                    "tool_calls": rec.get("tool_call_count") or 0,
+                    "api_calls": rec.get("api_call_count") or 0,
+                    "input_tokens": rec.get("input_tokens") or 0,
+                    "output_tokens": rec.get("output_tokens") or 0,
+                    "cache_read_tokens": rec.get("cache_read_tokens") or 0,
+                })
+
+            midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            agg = [k for k in ("api_call_count", "tool_call_count", "input_tokens", "output_tokens", "cache_read_tokens") if k in cols]
+            c.execute(f"SELECT COUNT(*), {', '.join(f'COALESCE(SUM({k}),0)' for k in agg)} FROM sessions "
+                      f"WHERE COALESCE(last_activity_at, started_at) >= ?", (midnight,))
+            r = c.fetchone()
+            today = {"sessions": r[0]}
+            today.update(dict(zip(agg, r[1:])))
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    return {
+        "online": bool(gateway) or bool(active),
+        "details": {"gateway": gateway, "active": active, "today": today},
+    }
+
+
+def invalidate_discovery():
+    _DISCOVERY_CACHE["data"] = None
+    _CATALOG_CACHE["data"] = None
+
+
+def engine_ports(eid, default=None):
+    """
+    Ports to probe for one engine, most trusted first: the ones the user
+    pinned, then discovered ones, then the default. A port that discovery or
+    config gave to a different engine is never probed as this one, so an MLX
+    server on :8081 is not mistaken for LocalAI.
+    """
+    cfg = configured_ports()
+    disc = discover_servers()
+    claimed = {}
+    for source in (disc, cfg):
+        for other, ports in source.items():
+            for p in ports:
+                claimed[p] = other
+
+    ordered = []
+    for p in cfg.get(eid, []) + disc.get(eid, []) + ([default] if default else []):
+        if p in ordered:
+            continue
+        if claimed.get(p, eid) != eid:
+            continue
+        ordered.append(p)
+    return ordered
 
 
 def server_catalog():
@@ -3089,13 +4138,13 @@ def server_catalog():
         {"id": "llamacpp",  "name": "llama.cpp",     "icon": "feather", "port": 8077,  "probe": "/props", "kind": "llamacpp", "installs": ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]},
         {"id": "lmstudio",  "name": "LM Studio",     "icon": "lmstudio", "port": 1234,  "probe": "/v1/models", "installs": ["/Applications/LM Studio.app", "~/.lmstudio"]},
         {"id": "vllm",      "name": "vLLM",          "icon": "vllm", "port": 8000,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/vllm"]},
-        {"id": "jan_server", "name": "Jan server",   "icon": "atom", "port": 1337,  "probe": "/v1/models", "installs": ["/Applications/Jan.app", "~/jan"]},
+        {"id": "jan_server", "name": "Jan server",   "icon": "atom", "port": 1337,  "probe": "/openapi.json", "kind": "jan", "installs": ["/Applications/Jan.app", "~/jan"]},
         {"id": "koboldcpp", "name": "KoboldCpp",     "icon": "book", "port": 5001,  "probe": "/api/v1/model", "kind": "kobold", "installs": ["~/koboldcpp", "/opt/homebrew/bin/koboldcpp"]},
         {"id": "textgenwebui", "name": "Text-gen WebUI", "icon": "panelsTopLeft", "port": 5000, "probe": "/v1/models", "installs": ["~/text-generation-webui"]},
-        {"id": "localai",   "name": "LocalAI",       "icon": "server", "port": 8081,  "probe": "/v1/models", "installs": ["/opt/homebrew/bin/local-ai"]},
+        {"id": "localai",   "name": "LocalAI",       "icon": "server", "port": 8080,  "probe": "/system", "kind": "localai", "installs": ["/opt/homebrew/bin/local-ai"]},
         {"id": "sglang",    "name": "SGLang",        "icon": "zap", "port": 30000, "probe": "/v1/models", "installs": ["/opt/homebrew/bin/sglang"]},
         {"id": "cortex",    "name": "Cortex",        "icon": "brain", "port": 39281, "probe": "/v1/models", "installs": ["/Applications/Cortex.app", "~/cortexcpp"]},
-        {"id": "tabbyapi",  "name": "TabbyAPI",      "icon": "cat", "port": 5555,  "probe": "/v1/models", "installs": ["~/tabbyAPI"]},
+        {"id": "tabbyapi",  "name": "TabbyAPI",      "icon": "cat", "port": 5000,  "probe": "/health", "kind": "tabby", "installs": ["~/tabbyAPI"]},
         {"id": "openwebui_srv", "name": "Open WebUI", "icon": "globe", "port": 3000, "probe": "/health", "kind": "health", "installs": ["~/.open-webui"]},
         {"id": "hermes_gw", "name": "Hermes gateway", "icon": "hermes",
          "port": int(os.environ.get("API_SERVER_PORT") or 8642), "probe": "/health",
@@ -3120,6 +4169,7 @@ def detect_sources():
             "icon": entry["icon"],
             "kind": entry["kind"],
             "readable": entry["readable"],
+            "reason": entry.get("reason"),
             "detected": found is not None,
             "path": sanitize_path(str(found)) if found else None,
             "artifacts": count,
@@ -3129,26 +4179,53 @@ def detect_sources():
 
 def detect_servers():
     port_overrides = {"openclaw_gw": resolve_openclaw_gateway()}
+    cfg = configured_ports()
+    disc = discover_servers(force=True)
     out = []
     for entry in server_catalog():
-        port = port_overrides.get(entry["id"], entry["port"])
-        if not port:
+        eid = entry["id"]
+        default = port_overrides.get(eid, entry["port"])
+        candidates = engine_ports(eid, default)
+        if not candidates:
             continue
-        online, detail = _probe_server(
-            port, entry["probe"],
-            kind=entry.get("kind", "openai"),
-            allow_tcp=entry.get("allow_tcp", False),
-        )
+        instances = []
+        for port in candidates:
+            online, detail = _probe_server(
+                port, entry["probe"],
+                kind=entry.get("kind", "openai"),
+                allow_tcp=entry.get("allow_tcp", False),
+            )
+            # A process named as this engine is running even if its probe
+            # route differs (stock mlx_lm.server has no /metrics).
+            if not online and port in disc.get(eid, []):
+                online = _probe_server(port, "/v1/models")[0]
+            source = ("config" if port in cfg.get(eid, [])
+                      else "discovered" if port in disc.get(eid, [])
+                      else "default")
+            instances.append({"port": port, "online": online, "source": source, "detail": detail})
+        via = "tcp"
+        if eid == "hermes_gw" and not any(i["online"] for i in instances):
+            gw = hermes_gateway_running()
+            if gw:
+                via = "socket"
+                instances = [{"port": None, "online": True, "source": "state", "detail": gw}]
+        # Drop the offline default when the engine was found elsewhere.
+        if any(i["online"] for i in instances):
+            instances = [i for i in instances if i["online"] or i["source"] == "config"]
+        primary = next((i for i in instances if i["online"]), instances[0])
         install = _first_existing(entry.get("installs", []))
         out.append({
-            "id": entry["id"],
+            "id": eid,
             "name": entry["name"],
             "icon": entry["icon"],
-            "port": port,
-            "online": online,
-            "installed": install is not None,
+            "port": primary["port"],
+            "default_port": default,
+            "via": via,
+            "online": primary["online"],
+            "instances": [{k: i[k] for k in ("port", "online", "source")} for i in instances],
+            "installed": install is not None or bool(disc.get(eid)) or via == "socket",
             "install_path": sanitize_path(str(install)) if install else None,
-            "detail": detail,
+            "detail": primary["detail"],
         })
     return out
 
@@ -3170,6 +4247,12 @@ def _looks_like(kind, payload):
         return any(k in payload for k in ("summary", "recent", "server", "latest"))
     if kind == "llamacpp":
         return any(k in payload for k in ("default_generation_settings", "model_path", "total_slots"))
+    if kind == "localai":
+        return "backends" in payload or "loaded_models" in payload
+    if kind == "jan":
+        return "openapi" in payload or "paths" in payload
+    if kind == "tabby":
+        return payload.get("status") in ("healthy", "unhealthy")
     if kind == "kobold":
         return "result" in payload
     if kind == "health":
@@ -3363,42 +4446,7 @@ def get_timeseries(query_params=None):
 
     c = conn.cursor()
 
-    # Time window calculation
-    start_ms = None
-    end_ms = None
-    now_ms = int(time.time() * 1000)
-    window = query_params.get("window", [""])[0] if query_params else ""
-    date_from = query_params.get("from", [""])[0] if query_params else ""
-    date_to = query_params.get("to", [""])[0] if query_params else ""
-
-    if window:
-        window_map = {
-            "10m": 10 * 60 * 1000,
-            "1h": 60 * 60 * 1000,
-            "6h": 6 * 60 * 60 * 1000,
-            "12h": 12 * 60 * 60 * 1000,
-            "1d": 24 * 60 * 60 * 1000,
-            "3d": 3 * 24 * 60 * 60 * 1000,
-            "7d": 7 * 24 * 60 * 60 * 1000,
-            "14d": 14 * 24 * 60 * 60 * 1000,
-            "30d": 30 * 24 * 60 * 60 * 1000,
-            "90d": 90 * 24 * 60 * 60 * 1000,
-        }
-        delta_ms = window_map.get(window)
-        if delta_ms:
-            start_ms = now_ms - delta_ms
-            end_ms = now_ms
-    else:
-        if date_from:
-            try:
-                start_ms = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp() * 1000)
-            except ValueError:
-                pass
-        if date_to:
-            try:
-                end_ms = int(datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp() * 1000)
-            except ValueError:
-                pass
+    start_ms, end_ms = resolve_window(query_params)
 
     where_sess = "WHERE time_created IS NOT NULL"
     params = []
@@ -3409,10 +4457,12 @@ def get_timeseries(query_params=None):
         where_sess += " AND time_created >= ?"
         params = [start_ms]
 
-    # Granularity format based on window
-    if window in ["10m", "1h", "6h"]:
+    # Bucket size follows the span, so a custom range gets the same
+    # granularity as the preset of similar length.
+    span_h = ((end_ms or int(time.time() * 1000)) - start_ms) / 3.6e6 if start_ms else None
+    if span_h is not None and span_h <= 6:
         fmt = "%H:%M"
-    elif window in ["1d", "3d"]:
+    elif span_h is not None and span_h <= 72:
         fmt = "%m-%d %H:00"
     else:
         fmt = "%Y-%m-%d"
@@ -3610,6 +4660,8 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
             self.send_json(get_catalog(force=force))
         elif path == "/api/live":
             self.send_json(check_live_status())
+        elif path == "/api/config":
+            self.send_json({"servers": configured_ports(), "path": sanitize_path(str(CONFIG_PATH))})
         elif path == "/" or path == "/index.html":
             index_file = STATIC_DIR / "index.html"
             if index_file.exists():
@@ -3622,6 +4674,53 @@ class TelemetryHandler(SimpleHTTPRequestHandler):
                 self.send_error(404, "index.html not found")
         else:
             super().do_GET()
+
+    def do_POST(self):
+        if not self._host_ok():
+            self.send_error(403, "Invalid Host header")
+            return
+        # A cross-site form can post text/plain without a preflight; requiring
+        # JSON forces one, which this server never grants.
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
+            self.send_error(415, "Expected application/json")
+            return
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).hostname not in self.ALLOWED_HOSTS:
+            self.send_error(403, "Cross-origin request refused")
+            return
+        path = urlparse(self.path).path
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), 65536)
+            body = json.loads(self.rfile.read(length).decode() or "{}")
+        except Exception:
+            self.send_error(400, "Invalid JSON")
+            return
+
+        if path == "/api/config/servers":
+            # {"engine": "mlx", "ports": [8081, 8082]}; an empty list clears it.
+            known = {e["id"] for e in server_catalog()}
+            eid = body.get("engine")
+            ports = body.get("ports")
+            if eid not in known or not isinstance(ports, list) or not all(
+                    isinstance(p, int) and 0 < p < 65536 and p != PORT for p in ports):
+                self.send_error(400, "Expected a known engine and a list of ports")
+                return
+            cfg = load_user_config()
+            servers = cfg.get("servers") if isinstance(cfg.get("servers"), dict) else {}
+            if ports:
+                servers[eid] = sorted(set(ports))
+            else:
+                servers.pop(eid, None)
+            cfg["servers"] = servers
+            try:
+                save_user_config(cfg)
+            except OSError as e:
+                self.send_error(500, f"Could not write config: {e}")
+                return
+            invalidate_discovery()
+            self.send_json({"servers": configured_ports(), "catalog": get_catalog(force=True)})
+        else:
+            self.send_error(404, "Not found")
 
     def send_json(self, data):
         # Every response leaves through here, so this is the one place the
@@ -3654,6 +4753,9 @@ def run(port=PORT):
         ("Goose", lambda: len(get_goose_sessions())),
         ("LM Studio", lambda: len(get_lmstudio_sessions())),
         ("Jan", lambda: len(get_jan_sessions())),
+        ("Crush", lambda: len(get_crush_sessions())),
+        ("AnythingLLM", lambda: len(get_anythingllm_sessions())),
+        ("Open WebUI", lambda: len(get_openwebui_sessions())),
         ("Aider", lambda: len(scan_aider_history())),
         ("Continue", lambda: len(scan_continue_sessions())),
     ):
